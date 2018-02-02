@@ -24,7 +24,7 @@ class Client:
         self.src_type = Constant.METADATA_TYPE
         self.dst_type = Constant.CLIENT_TYPE
         
-    def _generate_resp_hb(self, head_unpack, site_id, queue_recv, conf_info):
+    def _generate_resp_hb(self, head_unpack, config_version, client_version):
         """
         @:生成client心跳回复消息
         @:回复的消息体json格式：
@@ -38,19 +38,6 @@ class Client:
         sequence = head_unpack[8]
         offset = head_unpack[12]
         
-        # 生成消息体
-        conf_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
-        if conf_body_unpack:
-            config_version = conf_body_unpack.get('config_version')
-            client_version = conf_body_unpack.get('client_version')
-        else:
-            logger.error('经过三次查询未查询到配置信息')
-            config_version = 0
-            client_version = 0
-        
-        # test
-#         config_version = 1
-#         client_version = 1
         body = {}
         body['config_version'] = config_version
         body['client_version'] = client_version
@@ -75,7 +62,7 @@ class Client:
         data = headPack + body_pack
         return data
     
-    def get_conf(self, site_id, queue_recv, conf_info):
+    def get_conf(self, site_id, conf_info):
         '''
         @:向ConfigServer查询Client的配置信息
         @:查询不成功查3次
@@ -85,18 +72,18 @@ class Client:
             logger.info('第{}次发送查询信息'.format(i+1))
             config_server.send_msg(site_id)
             key = str(site_id)
-            res = queue_recv.get(key)
-            if res:
-                body_unpack = conf_info.get(key)
+            body_unpack = conf_info.get(key)
+            logger.info("get_conf中的body_unpack:{}".format(body_unpack))
+            if body_unpack:
                 conf_info.pop(key)
                 return body_unpack
             else:
-                logger.info('延时1秒再发送查询请求')
-                time.sleep(1)
+                logger.info('延时1秒发送查询请求')
+                time.sleep(3)
         else:
-            logger.error('查询3次未查到{}的配置信息'.format(site_id))
+            logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
         
-    def handle_hb(self, head_unpack, body, conn, queue_recv, conf_info):
+    def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
         """
         @:处理Client心跳消息
         @:心跳消息内容字段：
@@ -105,8 +92,8 @@ class Client:
         """
         logger.info('执行handle_hb，处理Client心跳消息')
         try:
-            fmt = '!IQQHHII'
-            body_unpack = struct.unpack(fmt, body)
+            fmt_body = '!IQQHHII'
+            body_unpack = struct.unpack(fmt_body, body)
             logger.info("收到Client心跳消息的body:{}".format(body_unpack))
         except:
             logger.error('Client心跳的消息体解析出错。')
@@ -123,9 +110,24 @@ class Client:
                                          timestamp=timestamp)
             with session_scope() as session:
                 session.add(client_status)
-         
-            response = self._generate_resp_hb(head_unpack, site_id, queue_recv,
-                                              conf_info)
+            
+            if str(site_id) not in version_info:
+                conf_body_unpack = self.get_conf(site_id, conf_info)
+                if conf_body_unpack:
+                    config_version = conf_body_unpack.get('config_version')
+                    client_version = conf_body_unpack.get('client_version')
+                    version_info[str(site_id)] = [config_version, client_version]
+                else:
+                    logger.error('经过{}次查询未查询到配置信息'.format(Constant.try_times))
+                    config_version = 0
+                    client_version = 0
+            else:
+                version_list = version_info.get(str(site_id))
+                config_version = version_list[0]
+                client_version = version_list[1]
+            
+            response = self._generate_resp_hb(head_unpack, config_version,
+                                              client_version)
 #             conn.sendall(response)
             t = threading.Thread(target=conn.sendall, args=(response,))
             t.start()
@@ -272,7 +274,7 @@ class Client:
             
             metadata_info.pop(file_md5)
             
-    def handle_query_num(self, head_unpack, body, conn, queue_recv, conf_info):
+    def handle_query_num(self, head_unpack, body, conn, conf_info):
         """
         query_json用来描述用户的查询条件，格式为：
         {"site_id": [id1, id2, ...],
@@ -308,14 +310,16 @@ class Client:
         logger.info("在本地查询到的记录数量为：{}".format(local_res))
         
         site_id = client_src_id
-        query_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
+        query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
         remote_res = 0
         if query_body_unpack:
             site_region_id = query_body_unpack.get(str(site_id))
-            if not site_region_id:
+            if site_region_id:
                 for region_id in site_region_id:
                     remote_metadata_info = query_body_unpack.get(region_id)
+                    logger.info("remote_metadata_info"
+                                ":{}".format(remote_metadata_info))
                     meta_ip = str(remote_metadata_info[1])
                     meta_port = int(remote_metadata_info[2])
                     meta_src_id = remote_metadata_info[3]
@@ -344,7 +348,7 @@ class Client:
         conn.sendall(data)
         
     def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
-                          queue_recv, conf_info):
+                          conf_info):
         """
         @:查询元数据信息
         """
@@ -360,11 +364,11 @@ class Client:
         order_by = body_unpack.get('order_by')
         desc_key = body_unpack.get('desc')
         
-        query_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
+        query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
         if query_body_unpack:
             site_region_id = query_body_unpack.get(str(site_id))
-            if not site_region_id:
+            if site_region_id:
                 local_ret = self._get_local_query_data(head_unpack, body,
                                                        sgw_info, lock)
                 for region_id in site_region_id:
@@ -457,7 +461,7 @@ class Client:
         conn.sendall(data)
             
 #     def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
-#                           queue_recv, conf_info):
+#                           conf_info):
 #         """
 #         :查询元数据信息
 #         """
@@ -479,10 +483,10 @@ class Client:
 # #         order_by = bodyPack.get('order_by')
 # #         desc_key = bodyPack.get('desc')
 #         
-#         query_bodyPack = self.get_conf(site_id, queue_recv, conf_info)
+#         query_bodyPack = self.get_conf(site_id, conf_info)
 #         if query_bodyPack:
 #             site_region_id = query_bodyPack.get(str(site_id))
-#             if not site_region_id:
+#             if site_region_id:
 #                 offset_local = 0
 #                 local_ret = self._get_local_query_data(body, sgw_info, lock,
 #                                                        offset_local, count)
@@ -535,6 +539,7 @@ class Client:
         """
         @:创建与RemoteMetadataServer通信的socket
         """
+        logger.info("执行_generate_meta_sock，生成与RemoteMetadataServer通信的socket")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect(addr)
@@ -549,6 +554,8 @@ class Client:
         """
 #         (total_size, major, minor, src_type, dst_type, src_id, client_dst_id,
 #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info("执行_generate_query_num，生成向RemoteMetadataServer"
+                    "查询记录数量的请求消息")
         total_size = head_unpack[0]
         trans_id = head_unpack[7]
         sequence = head_unpack[8]
@@ -566,6 +573,10 @@ class Client:
                   src_id, dst_id, trans_id, sequence, command, ack_code,
                   total, offset, count]
         head_pack = struct.pack(Constant.FMT_COMMON_HEAD, *header)
+        logger.info("生成向RemoteMetadataServer查询记录数量的请求消息的"
+                    "head：{}".format(header))
+        logger.info("生成向RemoteMetadataServer查询记录数量的请求消息的"
+                    "body:{}".format(body))
         data = head_pack + body
         return data
     
@@ -573,6 +584,7 @@ class Client:
         """
         @:向RemoteMetadataServer发送查询消息
         """
+        logger.info("执行_send_query_num，向RemoteMetadataServer发送查询消息")
         data = self._generate_query_num(head_unpack, body, meta_src_id)
         sock.sendall(data)
         
@@ -788,6 +800,7 @@ class Client:
         "order_by": [keyword1, keyword2…],
         "desc": bool}
         """
+        logger.info("执行_get_local_query_num，获取本地查询到的记录数量")
         body_unpack = json.loads(body.decode('utf-8'))
         logger.info(body_unpack)
         site_id = body_unpack.get('site_id')[0]
@@ -1246,8 +1259,7 @@ class Client:
 #         body_query = b''.join(body_tmp)
 #         conn.sendall(body_query)
             
-    def handle_delete(self, head_unpack, body, conn, sgw_info, lock, queue_recv,
-                      conf_info):
+    def handle_delete(self, head_unpack, body, conn, sgw_info, lock, conf_info):
         """
         @:处理Client的删除请求
         """
@@ -1287,10 +1299,10 @@ class Client:
             conn.sendall(data)
         else:
             site_id = client_src_id
-            query_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
+            query_body_unpack = self.get_conf(site_id, conf_info)
             logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
             site_region_id = query_body_unpack.get(str(site_id))
-            if not site_region_id:
+            if site_region_id:
                 i = 0
                 while i < len(site_region_id):
                     region_id = site_region_id[i]
@@ -1507,8 +1519,7 @@ class Client:
         data = head_pack + body_pack + metadata_pack
         conn.sendall(data)
         
-    def handle_config_upgrade(self, head_unpack, body, conn, queue_recv,
-                              conf_info):
+    def handle_config_upgrade(self, head_unpack, body, conn, conf_info):
         """
         @:处理Client配置升级
         @:Client更新配置请求的消息体json格式：
@@ -1530,7 +1541,7 @@ class Client:
         site_id = body_unpack.get('site_id') 
         
         # 生成消息体 
-        query_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
+        query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
         region_id_info = query_body_unpack.get('region_id')
         region_id = region_id_info[0]
@@ -1566,7 +1577,7 @@ class Client:
         data = head_pack + body_pack
         conn.sendall(data)
     
-    def handle_client_upgrade(self, head_unpack, body, conn, queue_recv, conf_info):
+    def handle_client_upgrade(self, head_unpack, body, conn, conf_info):
         """
         @:处理Client软件升级
         @:Client软件升级请求的消息体json格式：
@@ -1590,7 +1601,7 @@ class Client:
         site_id = body_unpack.get('site_id')
          
         # 生成消息体 
-        query_body_unpack = self.get_conf(site_id, queue_recv, conf_info)
+        query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
         file_url = query_body_unpack.get('file_url')
         file_name = query_body_unpack.get('file_name')

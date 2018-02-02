@@ -6,8 +6,8 @@ import json
 import sys
 import time
 import threading
-import queue
 import psutil
+# from multiprocessing import Process
 
 from log import logger
 from config import Config, Constant
@@ -141,6 +141,8 @@ class ConfigServer:
                   command, total, count]
         fmt_head = '!I4BIIQ8xI4xQ8xI4x'
         head_pack = struct.pack(fmt_head, *header)
+        logger.info("向ConfigServer查询的消息的head:{}".format(header))
+        logger.info("向ConfigServer查询的消息的body:{}".format(body_json))
         data = head_pack + body_pack
         return data
     
@@ -211,7 +213,7 @@ class ConfigServer:
         body = self.recvall(body_size)
         return head_unpack, body
         
-    def data_handler(self, queue_recv, conf_info):
+    def data_handler(self, conf_info):
         """
         body_unpack:
         {str(site_id): ["region_id1", "region_id2", "region_id3"...],# 历史的region_id
@@ -226,58 +228,80 @@ class ConfigServer:
         "file_md5": file_md5}
         """
         logger.info('执行data_handler,接收ConfigServer返回的消息')
-        while True:
-            head_unpack, body = self.get_msg()
-            trans_id = head_unpack[7]
-            site_id = trans_id
-            key = str(site_id)
-            command = head_unpack[9]
-            
-            if command == Constant.CONFIG_HB_RESP:
-                logger.info('收到ConfigServer心跳回复消息')
-                logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
-            elif command == Constant.CONFIG_QUERY_RESP:
-                """
-                @:将str(site_id)为key，放到接收队列中，同时以str(site_id)为key,收到的查询消息
-                @:放到字典conf_info中。
-                """
-                logger.info('收到ConfigServer回复的查询消息')
-                body_unpack = json.loads(body.decode('utf-8'))
-                conf_info[key] = body_unpack
-                queue_recv.put(key)
-            elif command == Constant.CONFIG_INFO:
-                logger.info('配置有变更，ConfigServer主动下发通知')
-                body_unpack = json.loads(body.decode('utf-8'))
-                site_id_info = key + '_info'
-                conf_info[site_id_info] = body_unpack
-                queue_recv.put(site_id_info)
+        try:
+            while True:
+                head_unpack, body = self.get_msg()
+                trans_id = head_unpack[7]
+                site_id = trans_id
+                key = str(site_id)
+                command = head_unpack[9]
+                
+                if command == Constant.CONFIG_HB_RESP:
+                    logger.info('收到ConfigServer心跳回复消息')
+                    logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
+                elif command == Constant.CONFIG_QUERY_RESP:
+                    """
+                    @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
+                    """
+                    logger.info('收到ConfigServer回复的查询消息')
+                    body_unpack = json.loads(body.decode('utf-8'))
+                    conf_info[key] = body_unpack
+                elif command == Constant.CONFIG_INFO:
+                    logger.info('配置有变更，ConfigServer主动下发通知')
+                    body_unpack = json.loads(body.decode('utf-8'))
+                    conf_info[key] = body_unpack
+        except EOFError:
+            logger.warning("Server socket to {} has "
+                           "closed.".format(self.sock.getpeername()))
+        except Exception as e:
+            logger.error("Server {1} "
+                         "error:{0}".format(e, self.sock.getpeername()))
 
 
 config_server = ConfigServer()
-    
-if __name__ == '__main__':
-    conf_info = {}
-    queue_recv = queue.Queue()
-    config_server.send_hb()
-    conf_recv_thread = threading.Thread(target=config_server.data_handler,
-                                        args=(queue_recv, conf_info))
-    conf_recv_thread.start()
-    site_id = 3
+
+def query(conf_info, site_id):
     for i in range(Constant.try_times):
         logger.info('第{}次发送查询信息'.format(i+1))
         config_server.send_msg(site_id)
         key = str(site_id)
-        res = queue_recv.get(key)
-        if res:
-            body_unpack = conf_info.get(key)
-            logger.info(body_unpack)
+        body_unpack = conf_info.get(key)
+        if body_unpack:
             conf_info.pop(key)
+            logger.info(body_unpack)
             break
         else:
-            logger.info('延时1秒再发送查询请求')
-            time.sleep(1)
+            logger.info('延时1秒发送查询请求')
+            time.sleep(3)
     else:
-        logger.error('查询3次未查到{}的配置信息'.format(site_id))
+        logger.error('查询3次未查到site_id：{}的配置信息'.format(site_id))
+    
+if __name__ == '__main__':
+    conf_info = {}
+    config_server.send_hb()
+    conf_recv_thread = threading.Thread(target=config_server.data_handler,
+                                        args=(conf_info,))
+    conf_recv_thread.start()
+#     conf_recv_p = Process(target=config_server.data_handler,
+#                           args=(conf_info,))
+#     conf_recv_p.start()
+    site_id = 1
+#     p = Process(target=query, args=(conf_info, site_id))
+#     p.start()
+    for i in range(Constant.try_times):
+        logger.info('第{}次发送查询信息'.format(i+1))
+        config_server.send_msg(site_id)
+        key = str(site_id)
+        body_unpack = conf_info.get(key)
+        if body_unpack:
+            conf_info.pop(key)
+            logger.info(body_unpack)
+            break
+        else:
+            logger.info('延时1秒发送查询请求')
+            time.sleep(3)
+    else:
+        logger.error('查询3次未查到site_id：{}的配置信息'.format(site_id))
 
         
         

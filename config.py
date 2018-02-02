@@ -50,7 +50,7 @@ class Constant:
     BUFSIZE = 2048
     METADATA_VERSION = 1
 #     TIME = 5.0
-    TIME = 20.0
+    TIME = 10.0
     DELAYED = 15.0
     try_times = 3
     

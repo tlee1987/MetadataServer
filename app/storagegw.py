@@ -2,8 +2,8 @@
 # -*- coding=utf-8 -*-
 import struct
 import threading
-from socket import inet_aton
-from binascii import hexlify
+# from socket import inet_aton
+# from binascii import hexlify
 
 from log import logger
 from config import Config, Constant
@@ -15,21 +15,25 @@ addr_info = set()
 class StorageGW:
     """
     @:sgw心跳消息内容字段:
-    region_id    system_id    group_id    sgw_version    timestamp
-    cpu_percent    mem_total    mem_free    disk_used    disk_free
-    netio_input    netio_output    conn_state    conn_dealed    
+    region_id    system_id    group_id    sgw_version    listen_ip
+    listen_port    timestamp    cpu_percent    mem_total    mem_free
+    disk_used    disk_free    netio_input    netio_output
+    conn_state    conn_dealed    
     @:保存sgw信息的数据结构
     {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
     group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
     ...}
     """
-    def __init__(self, region_id, system_id, group_id, sgw_version, timestamp,
-                 cpu_percent, mem_total, mem_free, disk_used, disk_free,
-                 netio_input, netio_output, conn_state, conn_dealed):
+    def __init__(self, region_id, system_id, group_id, sgw_version, listen_ip,
+                 listen_port, timestamp, cpu_percent, mem_total, mem_free,
+                 disk_used, disk_free, netio_input, netio_output,
+                 conn_state, conn_dealed):
         self.region_id = region_id
         self.system_id = system_id
         self.group_id = group_id
         self.disk_free = disk_free
+        self.listen_ip = listen_ip
+        self.listen_port = listen_port
         
         self.sgw_status = SgwStaus(region_id=region_id,
                                    system_id=system_id,
@@ -89,7 +93,7 @@ class StorageGW:
 #             conn.sendall(response)
             t = threading.Thread(target=conn.sendall, args=(response,))
             t.start()
-            self.register_sgw(head_unpack, conn, sgw_info, lock)
+            self.register_sgw(head_unpack, sgw_info, lock)
              
             with session_scope() as session:
                 session.add(self.sgw_status)
@@ -99,7 +103,7 @@ class StorageGW:
             logger.error('sgw心跳消息中的region_id或者system_id与Metadata Server'
                          '本地配置的region_id和system_id不一致')
             
-    def register_sgw(self, head_unpack, conn, sgw_info, lock):
+    def register_sgw(self, head_unpack, sgw_info, lock):
         """
         @:网关注册
         {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
@@ -109,11 +113,12 @@ class StorageGW:
         """
         logger.info('执行register_sgw,注册sgw网关信息')
         sgw_id = head_unpack[5]
-        addr = conn.getpeername()
-        ip_bin = inet_aton(addr[0])   
-        ip_hex = hexlify(ip_bin)
-        ip = int(ip_hex.decode('utf-8'), 16)
-        addr_converted = (ip, addr[1], sgw_id)
+#         addr = conn.getpeername()
+#         ip_bin = inet_aton(addr[0])   
+#         ip_hex = hexlify(ip_bin)
+#         ip = int(ip_hex.decode('utf-8'), 16)
+#         addr_converted = (ip, addr[1], sgw_id)
+        addr_converted = (self.listen_ip, self.listen_port, sgw_id)
         addr_info.add(addr_converted)
         
         lock.acquire()

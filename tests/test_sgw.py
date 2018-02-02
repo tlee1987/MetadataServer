@@ -13,7 +13,7 @@ from log import logger
 class TestSGW:
     
     def __init__(self):
-        self.total_size = 152
+        self.total_size = 160
         self.major = Constant.MAJOR_VERSION
         self.minor = Constant.MINOR_VERSION
         self.src_type = Constant.SGW_TYPE
@@ -58,9 +58,14 @@ class TestSGW:
         netio_output = netio_info[0]
         conn_state = 0
         conn_dealed = 0
-        body = [region_id, system_id, group_id, sgw_version, timestamp,
-                cpu_percent, mem_total, mem_free, disk_used, disk_free,
-                netio_input, netio_output, conn_state, conn_dealed]
+        
+        listen_ip = 2130706433
+        listen_port = 3434
+        
+        body = [region_id, system_id, group_id, sgw_version, listen_ip,
+                listen_port, timestamp, cpu_percent, mem_total, mem_free,
+                disk_used, disk_free, netio_input, netio_output,
+                conn_state, conn_dealed]
         return body
     
     def generate_hb(self):
@@ -78,7 +83,7 @@ class TestSGW:
         sequence += 1
         
         body =  self.get_info()
-        fmt_body = '!6I8Q'
+        fmt_body = '!5IH2xII8Q'
         bodypack = struct.pack(fmt_body, *body)
         logger.info(header)
         logger.info(body)

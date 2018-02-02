@@ -5,7 +5,7 @@ import socket
 import struct
 import selectors
 import threading
-from multiprocessing import Process, Manager, Lock, Queue
+from multiprocessing import Process, Manager, Lock
 
 from log import logger
 from config import Config, Constant
@@ -17,57 +17,44 @@ from app.status import StatusServer
 
 class TcpServer:
     
-    def __init__(self):
-        self.sock = self._generate_sock()
-        self.workers = self._get_workers()
-        self.sel = selectors.DefaultSelector()
+#     def __init__(self):
+#         self.sock = self._generate_sock()
+#         self.workers = self._get_workers()
+#         self.sel = selectors.DefaultSelector()
         
-    def _generate_sock(self):
-        """
-        @:生成监听套接字并绑定到配置的ip和port
-        """
-        HOST = Config.listening_ip
-        try:
-            PORT = int(Config.listening_port)
-        except ValueError:
-            logger.error('配置文件meta.ini中的listening【section】port参数配置'
-                         '为非数字，请检查配置文件。')
-            sys.exit()
-        ADDR = (HOST, PORT)
-      
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(ADDR)
-        sock.listen(5)
-        sock.setblocking(False)
-        return sock
+#     def _generate_sock(self):
+#         """
+#         @:生成监听套接字并绑定到配置的ip和port
+#         """
+#         HOST = Config.listening_ip
+#         try:
+#             PORT = int(Config.listening_port)
+#         except ValueError:
+#             logger.error('配置文件meta.ini中的listening【section】port参数配置'
+#                          '为非数字，请检查配置文件。')
+#             sys.exit()
+#         ADDR = (HOST, PORT)
+#        
+#         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+#         sock.bind(ADDR)
+#         sock.listen(5)
+#         sock.setblocking(False)
+#         return sock
 
-    def _get_workers(self):
-        """
-        @:获得工作进程数
-        """
-        try:
-            workers = int(Config._workers)
-        except ValueError:
-            logger.error('配置文件meta.ini中的worker参数配置为非数字，请检查配置文件。')
-            sys.exit()
-        else:
-            if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
-                workers = Constant.DEFAULT_WORKERS
-        return workers       
-        
-    def accept(self, sock, mask, sgw_info, lock, queue_recv, conf_info):
-        """
-        @:接受连接请求
-        """
-        try:
-            conn, addr = sock.accept()
-            logger.info('Accepted connection from {}'.format(addr))
-        except socket.gaierror as e:
-            logger.error('Connection error message:{}'.format(e))
-        else:
-            conn.setblocking(False)
-            self.sel.register(conn, selectors.EVENT_READ, self.read)
+#     def _get_workers(self):
+#         """
+#         @:获得工作进程数
+#         """
+#         try:
+#             workers = int(Config._workers)
+#         except ValueError:
+#             logger.error('配置文件meta.ini中的worker参数配置为非数字，请检查配置文件。')
+#             sys.exit()
+#         else:
+#             if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
+#                 workers = Constant.DEFAULT_WORKERS
+#         return workers       
         
 #     def read(self, conn, mask, sgw_info, lock, queue_recv, conf_info):
 #         """
@@ -110,6 +97,19 @@ class TcpServer:
 #                         break
 #                     else:
 #                         data = data[total_size:]
+
+    def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info):
+        """
+        @:接受连接请求
+        """
+        try:
+            conn, addr = sock.accept()
+            logger.info('Accepted connection from {}'.format(addr))
+        except socket.gaierror as e:
+            logger.error('Connection error message:{}'.format(e))
+        else:
+            conn.setblocking(False)
+            sel.register(conn, selectors.EVENT_READ, self.read)
                         
     def recvall(self, conn, length):
         """
@@ -122,7 +122,7 @@ class TcpServer:
                 continue
             else:
                 if not block:
-                    raise EOFError
+                    raise EOFError("socket closed")
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
@@ -138,22 +138,28 @@ class TcpServer:
         body = self.recvall(conn, body_size)
         return head_unpack, body
         
-    def read(self, conn, mask, sgw_info, lock, queue_recv, conf_info):
+    def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info):
         """
         """
-        while True:
-            head_unpack, body = self.get_msg(conn)
-            try:
-                logger.info("head_unpack：{}".format(head_unpack))
-                logger.info("body:{}".format(body))
-                self.data_handler(head_unpack, body, conn, self.sel,
-                                  sgw_info, lock, queue_recv, conf_info)
-            except:
-                logger.error('数据处理出现错误')
-                break
+        try:
+            while True:
+                head_unpack, body = self.get_msg(conn)
+                try:
+                    logger.info("head_unpack：{}".format(head_unpack))
+                    logger.info("body:{}".format(body))
+                    self.data_handler(head_unpack, body, conn, sel, sgw_info,
+                                      lock, conf_info, version_info)
+                except:
+                    logger.error('数据处理出现错误')
+                    break
+        except EOFError:
+            logger.warning("Client socket to {} has "
+                           "closed.".format(conn.getpeername()))
+        except Exception as e:
+            logger.error("Client {1} error:{0}".format(e, conn.getpeername()))
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
-                     queue_recv, conf_info):
+                     conf_info, version_info):
         """
         @:对收到的数据进行业务处理
         (total_size, major, minor, src_type, dst_type, src_id, dst_id, trans_id,
@@ -167,7 +173,7 @@ class TcpServer:
             """
             logger.info('收到sgw心跳消息')
             try:
-                fmt = '!6I8Q'
+                fmt = '!5IH2xII8Q'
                 body_unpack = struct.unpack(fmt, body)
                 logger.info("收到sgw心跳消息body:{}".format(body_unpack))
             except:
@@ -176,7 +182,7 @@ class TcpServer:
                 storagegw = StorageGW(*body_unpack)
 #                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
                 t = threading.Thread(target=storagegw.handle_hb,
-                                     args=(head_unpack, conn, sel,sgw_info,
+                                     args=(head_unpack, conn, sel, sgw_info,
                                            lock))
                 t.start()
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
@@ -187,11 +193,11 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-#             client.handle_hb(head_unpack, body, conn, queue_recv, conf_info)
-            t = threading.Thread(target=client.handle_hb,
-                                 args=(head_unpack, body, conn, queue_recv,
-                                       conf_info))
-            t.start()
+            client.handle_hb(head_unpack, body, conn, conf_info, version_info)
+#             t = threading.Thread(target=client.handle_hb,
+#                                  args=(head_unpack, body, conn, conf_info,
+#                                        version_info))
+#             t.start()
             
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
             """
@@ -217,8 +223,7 @@ class TcpServer:
             """
             logger.info('收到Client查询记录数量的请求')
             client = Client()
-            client.handle_query_num(head_unpack, body, conn, queue_recv,
-                                    conf_info)
+            client.handle_query_num(head_unpack, body, conn, conf_info)
             
         elif command == Constant.CLIENT_QUERY_DATA:
             """
@@ -227,7 +232,7 @@ class TcpServer:
             logger.info('收到Client查询数据的请求')
             client = Client()
             client.handle_query_data(head_unpack, body, conn, sgw_info, lock,
-                                     queue_recv, conf_info)
+                                     conf_info)
                     
         elif command == Constant.REMOTE_QUERY_NUM:
             """
@@ -253,7 +258,7 @@ class TcpServer:
             logger.info('收到Client删除元数据的请求')
             client = Client()
             client.handle_delete(head_unpack, body, conn, sgw_info, lock,
-                                 queue_recv, conf_info)
+                                 conf_info)
             
         elif command == Constant.REMOTE_DEL:
             """
@@ -269,8 +274,7 @@ class TcpServer:
             """
             logger.info('收到Client配置升级的请求')
             client = Client()
-            client.handle_config_upgrade(head_unpack, body, conn, queue_recv,
-                                         conf_info)
+            client.handle_config_upgrade(head_unpack, body, conn, conf_info)
             
         elif command == Constant.CLIENT_UPGRADE:
             """
@@ -278,49 +282,90 @@ class TcpServer:
             """
             logger.info('收到Client软件升级的请求')
             client = Client()
-            client.handle_client_upgrade(head_unpack, body, conn, queue_recv,
-                                         conf_info)
+            client.handle_client_upgrade(head_unpack, body, conn, conf_info)
             
         else:
             logger.error('解析到未定义的命令字')
         
-    def run(self, sgw_info, lock, queue_recv, conf_info):
-        self.sel.register(self.sock, selectors.EVENT_READ, self.accept)
+    def run(self, listener, sel, sgw_info, lock, conf_info, version_info):
+        conf_recv_thread = threading.Thread(target=config_server.data_handler,
+                                            args=(conf_info,))
+        conf_recv_thread.start()
+        sel.register(listener, selectors.EVENT_READ, self.accept)
         while True:
-            events = self.sel.select()
+            events = sel.select()
             for key, mask in events:
                 callback = key.data
-                callback(key.fileobj, mask, sgw_info, lock, queue_recv,
-                         conf_info)
+                callback(key.fileobj, mask, sel, sgw_info, lock, conf_info,
+                         version_info)
+
+
+def _generate_srv_sock():
+    """
+    @:生成监听套接字并绑定到配置的ip和port
+    """
+    HOST = Config.listening_ip
+    try:
+        PORT = int(Config.listening_port)
+    except ValueError:
+        logger.error('配置文件meta.ini中的listening【section】port参数配置'
+                     '为非数字，请检查配置文件。')
+        sys.exit()
+    ADDR = (HOST, PORT)
+   
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(ADDR)
+    sock.listen(5)
+    sock.setblocking(False)
+    return sock
+
+def _get_workers():
+    """
+    @:获得工作进程数
+    """
+    try:
+        workers = int(Config._workers)
+    except ValueError:
+        logger.error('配置文件meta.ini中的worker参数配置为非数字，请检查配置文件。')
+        sys.exit()
+    else:
+        if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
+            workers = Constant.DEFAULT_WORKERS
+    return workers   
     
     
 if __name__ == '__main__':
     lock = Lock()
     m = Manager()
+    version_info = m.dict()
     sgw_info = m.dict()
     sgw_info = {2: [1024000, [[(3232252929, 8000, 1000),
                                (3232252930, 8000, 1001),
                                (3232252931, 8000, 1002)], 1, 1, 1]]}
     conf_info = m.dict()
-    queue_recv = Queue()
-    config_server.send_hb()
-    conf_recv_thread = threading.Thread(target=config_server.data_handler,
-                                        args=(queue_recv, conf_info))
-    conf_recv_thread.start()
+#     config_server.send_hb()
+#     conf_recv_thread = threading.Thread(target=config_server.data_handler,
+#                                         args=(conf_info,))
+#     conf_recv_thread.start()
     
     status_server = StatusServer()
     status_server_thread = threading.Thread(target=status_server.send_hb)
     status_server_thread.start()
     
+    listener = _generate_srv_sock()
+    workers = _get_workers()
+    workers = 4
+    sel = selectors.DefaultSelector()
+    params = (listener, sel, sgw_info, lock, conf_info, version_info)
+    
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')
-    logger.info('Listening at:{}'.format(tcp_server.sock.getsockname()))
-#     tcp_server.run(sgw_info, lock, queue_recv, conf_info)
-    for i in range(tcp_server.workers):
-        logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1,
-                                                     tcp_server.workers))
-        p = Process(target=tcp_server.run, args=(sgw_info, lock, queue_recv,
-                                                 conf_info))
+    logger.info('Listening at:{}'.format(listener.getsockname()))
+#     tcp_server.run(params)
+    for i in range(workers):
+        logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
+        p = Process(target=tcp_server.run, args=params)
         p.start()
     
 
