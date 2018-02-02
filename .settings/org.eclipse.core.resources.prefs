@@ -1,0 +1,14 @@
+eclipse.preferences.version=1
+encoding//app/client.py=utf-8
+encoding//app/configserver.py=utf-8
+encoding//app/status.py=utf-8
+encoding//app/storagegw.py=utf-8
+encoding//app/tcpserver.py=utf-8
+encoding//backup/client.py=utf-8
+encoding//backup/client_config.py=utf-8
+encoding//backup/remotemetadata.py=utf-8
+encoding//backup/status.py=utf-8
+encoding//tests/test_client.py=utf-8
+encoding//tests/test_sgw.py=utf-8
+encoding/config.py=utf-8
+encoding/log.py=utf-8
