@@ -4,7 +4,6 @@ import os
 import logging.config
 
 from config import basedir
-print('我是log模块，我在导入的时候被执行')
 
 logdir = os.path.join(basedir, 'logs')
 logini_path = os.path.join(basedir, 'log.ini')

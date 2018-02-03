@@ -6,8 +6,8 @@ import psutil
 import time
 import threading
 
-from config import Constant, Config
 from log import logger
+from config import Constant, Config
 
 
 class TestSGW:
@@ -25,10 +25,10 @@ class TestSGW:
         self.sock = self.generate_sock()
         
     def generate_sock(self):
-        HOST = '192.168.64.47'
-        PORT = 3434
-#         HOST = '192.168.68.43'
-#         PORT = 7788
+#         HOST = '192.168.64.47'
+#         PORT = 3434
+        HOST = '192.168.68.43'
+        PORT = 7788
         ADDR = (HOST, PORT)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(ADDR)
@@ -45,8 +45,8 @@ class TestSGW:
         disk_info = list(psutil.disk_usage('/'))[1:3]
         netio_info = list(psutil.net_io_counters())[:2]
         
-        region_id = 2
-        system_id = 2
+        region_id = 1
+        system_id = 1
         group_id = 1
         sgw_version = 1
         timestamp = int(time.time())
@@ -106,11 +106,13 @@ class TestSGW:
         """
         blocks = []
         while length:
-            block = self.sock.recv(length)
-            if not block:
-                raise EOFError
-            length -= len(block)
-            blocks.append(block)
+            try:
+                block = self.sock.recv(length)
+            except OSError:
+                continue
+            else:
+                length -= len(block)
+                blocks.append(block)
         return b''.join(blocks)
     
     def get_msg(self):
@@ -144,12 +146,138 @@ if __name__ == '__main__':
     t = threading.Thread(target=test_sgw.data_handler)
     t.start()
     
+    """
+    tmp_dict['site_id'] = site_id_tmp
+    tmp_dict['app_id'] = app_id_tmp
+    tmp_dict['file_name'] = file_name
+    tmp_dict['region_id'] = region_id
+    tmp_dict['user_id'] = user_id_tmp
+    tmp_dict['customer_id'] = customer_id_tmp
+    tmp_dict['timestamp'] = timestamp_tmp
+    tmp_dict['sgw_ip'] = sgw_ip
+    tmp_dict['proxy_ip'] = proxy_ip
+    tmp_dict['sgw_port'] = sgw_port
+    tmp_dict['proxy_port'] = proxy_port
+    tmp_dict['sgw_id'] = sgw_id
+    tmp_dict['proxy_id'] = proxy_id
+    
+    {"site_id": site_id,
+     "app_id": app_id,
+     "file_name": file_name,
+     "region_id": region_id,
+     "user_id": user_id,
+     "customer_id": customer_id,
+     "timestamp": timestamp,
+     "sgw_ip": sgw_ip,
+     "proxy_ip": proxy_ip,
+     "sgw_port": sgw_port,
+     "proxy_port": proxy_port,
+     "sgw_id": sgw_id,
+     "proxy_id": proxy_id}
+    """
+    local_ret=
+    [{"site_id": site_id,
+     "app_id": app_id,
+     "file_name": file_name,
+     "region_id": region_id,
+     "user_id": user_id,
+     "customer_id": customer_id,
+     "timestamp": timestamp,
+     "sgw_ip": sgw_ip,
+     "proxy_ip": proxy_ip,
+     "sgw_port": sgw_port,
+     "proxy_port": proxy_port,
+     "sgw_id": sgw_id,
+     "proxy_id": proxy_id},
+    {"site_id": site_id,
+     "app_id": app_id,
+     "file_name": file_name,
+     "region_id": region_id,
+     "user_id": user_id,
+     "customer_id": customer_id,
+     "timestamp": timestamp,
+     "sgw_ip": sgw_ip,
+     "proxy_ip": proxy_ip,
+     "sgw_port": sgw_port,
+     "proxy_port": proxy_port,
+     "sgw_id": sgw_id,
+     "proxy_id": proxy_id},...]
     
     
+    {"region_id": [
+        {"site_id": site_id,
+         "app_id": app_id,
+         "file_name": file_name,
+         "region_id": region_id,
+         "user_id": user_id,
+         "customer_id": customer_id,
+         "timestamp": timestamp,
+         "sgw_ip": sgw_ip,
+         "proxy_ip": proxy_ip,
+         "sgw_port": sgw_port,
+         "proxy_port": proxy_port,
+         "sgw_id": sgw_id,
+         "proxy_id": proxy_id},...],
+    "region_id1": [
+        {"site_id": site_id,
+         "app_id": app_id,
+         "file_name": file_name,
+         "region_id": region_id,
+         "user_id": user_id,
+         "customer_id": customer_id,
+         "timestamp": timestamp,
+         "sgw_ip": sgw_ip,
+         "proxy_ip": proxy_ip,
+         "sgw_port": sgw_port,
+         "proxy_port": proxy_port,
+         "sgw_id": sgw_id,
+         "proxy_id": proxy_id},...],
+    "region_id2": [
+        {"site_id": site_id,
+         "app_id": app_id,
+         "file_name": file_name,
+         "region_id": region_id,
+         "user_id": user_id,
+         "customer_id": customer_id,
+         "timestamp": timestamp,
+         "sgw_ip": sgw_ip,
+         "proxy_ip": proxy_ip,
+         "sgw_port": sgw_port,
+         "proxy_port": proxy_port,
+         "sgw_id": sgw_id,
+         "proxy_id": proxy_id},...],
+    ...
+    }
     
-    
-    
-    
+    remote_ret =
+    {"site_id": [
+        {"site_id": site_id,
+         "app_id": app_id,
+         "file_name": file_name,
+         "region_id": region_id,
+         "user_id": user_id,
+         "customer_id": customer_id,
+         "timestamp": timestamp,
+         "sgw_ip": sgw_ip,
+         "proxy_ip": proxy_ip,
+         "sgw_port": sgw_port,
+         "proxy_port": proxy_port,
+         "sgw_id": sgw_id,
+         "proxy_id": proxy_id},
+        {"site_id": site_id,
+         "app_id": app_id,
+         "file_name": file_name,
+         "region_id": region_id,
+         "user_id": user_id,
+         "customer_id": customer_id,
+         "timestamp": timestamp,
+         "sgw_ip": sgw_ip,
+         "proxy_ip": proxy_ip,
+         "sgw_port": sgw_port,
+         "proxy_port": proxy_port,
+         "sgw_id": sgw_id,
+         "proxy_id": proxy_id},...]
+    }
     
     
     

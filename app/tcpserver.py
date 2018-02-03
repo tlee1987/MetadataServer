@@ -17,45 +17,9 @@ from app.status import StatusServer
 
 class TcpServer:
     
-#     def __init__(self):
-#         self.sock = self._generate_sock()
-#         self.workers = self._get_workers()
-#         self.sel = selectors.DefaultSelector()
-        
-#     def _generate_sock(self):
-#         """
-#         @:生成监听套接字并绑定到配置的ip和port
-#         """
-#         HOST = Config.listening_ip
-#         try:
-#             PORT = int(Config.listening_port)
-#         except ValueError:
-#             logger.error('配置文件meta.ini中的listening【section】port参数配置'
-#                          '为非数字，请检查配置文件。')
-#             sys.exit()
-#         ADDR = (HOST, PORT)
-#        
-#         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-#         sock.bind(ADDR)
-#         sock.listen(5)
-#         sock.setblocking(False)
-#         return sock
-
-#     def _get_workers(self):
-#         """
-#         @:获得工作进程数
-#         """
-#         try:
-#             workers = int(Config._workers)
-#         except ValueError:
-#             logger.error('配置文件meta.ini中的worker参数配置为非数字，请检查配置文件。')
-#             sys.exit()
-#         else:
-#             if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
-#                 workers = Constant.DEFAULT_WORKERS
-#         return workers       
-        
+    def __init__(self):
+        pass
+    
 #     def read(self, conn, mask, sgw_info, lock, queue_recv, conf_info):
 #         """
 #         @:解析收到的数据
@@ -65,12 +29,19 @@ class TcpServer:
 #         while True:
 #             try:
 #                 more = conn.recv(Constant.BUFSIZE)
-#             except OSError:
-#                 continue
+#             except EOFError:
+#                 logger.warning("Client socket to {} has "
+#                                "closed.".format(conn.getpeername()))
+#                 break
+# #             except OSError:
+# #                 continue
+#             except Exception as e:
+#                 logger.error("Client {1} error:{0}".format(e, conn.getpeername()))
+#                 break
 #             else:
 #                 if not more:
 #                     logger.info('我有跳出循环')
-#                     self.sel.unregister(conn)
+# #                     self.sel.unregister(conn)
 #                     break
 #                 data += more
 #                 while True:
@@ -81,7 +52,7 @@ class TcpServer:
 #                     head_unpack = struct.unpack(Constant.FMT_COMMON_HEAD,
 #                                              data[:Constant.HEAD_LENGTH])
 #                     total_size = head_unpack[0]
-#      
+#       
 #                     if len(data) < total_size:
 #                         logger.warning('接收到的数据包长度为{}，总共为{}，数据包不完整，'
 #                                        '继续接收数据'.format(len(data), total_size))
@@ -105,7 +76,7 @@ class TcpServer:
         try:
             conn, addr = sock.accept()
             logger.info('Accepted connection from {}'.format(addr))
-        except socket.gaierror as e:
+        except socket.error as e:
             logger.error('Connection error message:{}'.format(e))
         else:
             conn.setblocking(False)
@@ -121,8 +92,6 @@ class TcpServer:
             except OSError:
                 continue
             else:
-                if not block:
-                    raise EOFError("socket closed")
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
@@ -141,22 +110,14 @@ class TcpServer:
     def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info):
         """
         """
+        head_unpack, body = self.get_msg(conn)
         try:
-            while True:
-                head_unpack, body = self.get_msg(conn)
-                try:
-                    logger.info("head_unpack：{}".format(head_unpack))
-                    logger.info("body:{}".format(body))
-                    self.data_handler(head_unpack, body, conn, sel, sgw_info,
-                                      lock, conf_info, version_info)
-                except:
-                    logger.error('数据处理出现错误')
-                    break
-        except EOFError:
-            logger.warning("Client socket to {} has "
-                           "closed.".format(conn.getpeername()))
-        except Exception as e:
-            logger.error("Client {1} error:{0}".format(e, conn.getpeername()))
+            logger.info("head_unpack：{}".format(head_unpack))
+            logger.info("body:{}".format(body))
+            self.data_handler(head_unpack, body, conn, sel, sgw_info,
+                              lock, conf_info, version_info)
+        except:
+            logger.error('数据处理出现错误')
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
                      conf_info, version_info):
@@ -193,11 +154,11 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-            client.handle_hb(head_unpack, body, conn, conf_info, version_info)
-#             t = threading.Thread(target=client.handle_hb,
-#                                  args=(head_unpack, body, conn, conf_info,
-#                                        version_info))
-#             t.start()
+#             client.handle_hb(head_unpack, body, conn, conf_info, version_info)
+            t = threading.Thread(target=client.handle_hb,
+                                 args=(head_unpack, body, conn, conf_info,
+                                       version_info))
+            t.start()
             
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
             """
@@ -344,10 +305,10 @@ if __name__ == '__main__':
                                (3232252930, 8000, 1001),
                                (3232252931, 8000, 1002)], 1, 1, 1]]}
     conf_info = m.dict()
-#     config_server.send_hb()
-#     conf_recv_thread = threading.Thread(target=config_server.data_handler,
-#                                         args=(conf_info,))
-#     conf_recv_thread.start()
+    config_server.send_hb()
+    conf_recv_thread = threading.Thread(target=config_server.data_handler,
+                                        args=(conf_info,))
+    conf_recv_thread.start()
     
     status_server = StatusServer()
     status_server_thread = threading.Thread(target=status_server.send_hb)

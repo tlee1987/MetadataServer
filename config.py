@@ -3,7 +3,6 @@
 import os
 import configparser
 
-print('我是config模块，我在导入的时候被执行')
 basedir = os.path.abspath(os.path.dirname(__file__))
 meta_path = os.path.join(basedir, 'meta.ini')
 
@@ -16,6 +15,7 @@ class Config:
     mysql_db2:mysql+pymysql://root:123456@192.168.68.43:3306/test
     """
     db_conn_str = conf.get('mysql_db1', 'conn_str')
+#     db_conn_str = conf.get('mysql_db2', 'conn_str')
     
     region_id = int(conf.get('local_config', 'region_id'))
     system_id = int(conf.get('local_config', 'system_id'))
@@ -45,8 +45,7 @@ class Constant:
     CONFIG_TYPE = int(0x05)
     
     CPU_NUMS = os.cpu_count()
-#     DEFAULT_WORKERS = int(3/4*CPU_NUMS)
-    DEFAULT_WORKERS = int(CPU_NUMS)
+    DEFAULT_WORKERS = int(3/4*CPU_NUMS)
     BUFSIZE = 2048
     METADATA_VERSION = 1
 #     TIME = 5.0
@@ -75,20 +74,20 @@ class Constant:
     CLIENT_HB_RESP = int(0x00001001)
     
     # client与metadata server通信 响应码
-    ACK_CLIENT_UPLOAD_ROUTE = int(0x00000100)
-    ACK_CLIENT_UPLOAD_ROUTE_NOTFOUND = int(0x00000101)
-    ACK_CLIENT_QUERY_NUM = int(0x00000300)
-    ACK_CLIENT_QUERY_DATA = int(0x00000400)
-    ACK_CLIENT_CONFIG_UPGRADE = int(0x00000600)
-    ACK_CLIENT_UPGRADE = int(0x00000700)
-    ACK_CLIENT_DEL_SUCCESS = int(0x00000A00)
-    ACK_CLIENT_DEL_FAILED = int(0x00000A01)
-    ACK_CLIENT_HB = int(0x00001001)
+    ACK_CLIENT_UPLOAD_ROUTE = 200
+    ACK_CLIENT_UPLOAD_ROUTE_NOTFOUND = 404
+    ACK_CLIENT_QUERY_NUM = 200
+    ACK_CLIENT_QUERY_DATA = 200
+    ACK_CLIENT_CONFIG_UPGRADE = 200
+    ACK_CLIENT_UPGRADE = 200
+    ACK_CLIENT_DEL_SUCCESS = 200
+    ACK_CLIENT_DEL_FAILED = 404
+    ACK_CLIENT_HB = 200
     
     # sgw与metadata server通信命令字
     SGW_HB = int(0x00010001)
     SGW_HB_RESP = int(0x00010002)
-    ACK_SGW_HB = int(0x00010003)
+    ACK_SGW_HB = 200
     
     # metadata server与status server通信命令字
     METADATA_HB = int(0x00030001)
@@ -100,8 +99,8 @@ class Constant:
     CONFIG_HB_RESP = int(0x00040004)
     CONFIG_INFO = int(0x00040005)
     
-    ACK_CONFIG_QUERY = int(0x00040006)
-    ACK_CONFIG_HB = int(0x00040007)
+    ACK_CONFIG_QUERY = 200
+    ACK_CONFIG_HB = 200
     
     # metadata server与remote metadata server通信命令字
     REMOTE_QUERY_NUM = int(0x00050001)
@@ -110,12 +109,10 @@ class Constant:
     REMOTE_QUERY_DATA_RESP = int(0x00050004)
     REMOTE_DEL = int(0x00050005)
     REMOTE_DEL_RESP = int(0x00050006)
-    ACK_REMOTE_QUERY_NUM = int(0x00050100)
-    ACK_REMOTE_QUERY_DATA = int(0x00050300)
-    ACK_REMOTE_DEL_SUCCESS = int(0x00050500)
-    ACK_REMOTE_DEL_FAILED = int(0x00050501)
+    ACK_REMOTE_QUERY_NUM = 200
+    ACK_REMOTE_QUERY_DATA = 200
+    ACK_REMOTE_DEL_SUCCESS = 200
+    ACK_REMOTE_DEL_FAILED = 404
     
-
-print('mysql_db1', Config.db_conn_str)
-print(conf.get('mysql_db2', 'conn_str'))
+print('当前连接的数据库信息为：{}'.format(Config.db_conn_str))
 

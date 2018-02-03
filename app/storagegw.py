@@ -8,7 +8,6 @@ import threading
 from log import logger
 from config import Config, Constant
 from app.models import SgwStaus, session_scope
-print('我是storagegw模块，我在导入的时候被执行')
 
 addr_info = set()
 

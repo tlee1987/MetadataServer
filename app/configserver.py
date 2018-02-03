@@ -11,7 +11,6 @@ import psutil
 
 from log import logger
 from config import Config, Constant
-print('我是configserver模块，我在导入的时候被执行')
 
 
 class ConfigServer:
@@ -194,11 +193,13 @@ class ConfigServer:
         """
         blocks = []
         while length:
-            block = self.sock.recv(length)
-            if not block:
-                raise EOFError
-            length -= len(block)
-            blocks.append(block)
+            try:
+                block = self.sock.recv(length)
+            except OSError:
+                continue
+            else:
+                length -= len(block)
+                blocks.append(block)
         return b''.join(blocks)
     
     def get_msg(self):
@@ -228,34 +229,27 @@ class ConfigServer:
         "file_md5": file_md5}
         """
         logger.info('执行data_handler,接收ConfigServer返回的消息')
-        try:
-            while True:
-                head_unpack, body = self.get_msg()
-                trans_id = head_unpack[7]
-                site_id = trans_id
-                key = str(site_id)
-                command = head_unpack[9]
-                
-                if command == Constant.CONFIG_HB_RESP:
-                    logger.info('收到ConfigServer心跳回复消息')
-                    logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
-                elif command == Constant.CONFIG_QUERY_RESP:
-                    """
-                    @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
-                    """
-                    logger.info('收到ConfigServer回复的查询消息')
-                    body_unpack = json.loads(body.decode('utf-8'))
-                    conf_info[key] = body_unpack
-                elif command == Constant.CONFIG_INFO:
-                    logger.info('配置有变更，ConfigServer主动下发通知')
-                    body_unpack = json.loads(body.decode('utf-8'))
-                    conf_info[key] = body_unpack
-        except EOFError:
-            logger.warning("Server socket to {} has "
-                           "closed.".format(self.sock.getpeername()))
-        except Exception as e:
-            logger.error("Server {1} "
-                         "error:{0}".format(e, self.sock.getpeername()))
+        while True:
+            head_unpack, body = self.get_msg()
+            trans_id = head_unpack[7]
+            site_id = trans_id
+            key = str(site_id)
+            command = head_unpack[9]
+            
+            if command == Constant.CONFIG_HB_RESP:
+                logger.info('收到ConfigServer心跳回复消息')
+                logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
+            elif command == Constant.CONFIG_QUERY_RESP:
+                """
+                @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
+                """
+                logger.info('收到ConfigServer回复的查询消息')
+                body_unpack = json.loads(body.decode('utf-8'))
+                conf_info[key] = body_unpack
+            elif command == Constant.CONFIG_INFO:
+                logger.info('配置有变更，ConfigServer主动下发通知')
+                body_unpack = json.loads(body.decode('utf-8'))
+                conf_info[key] = body_unpack
 
 
 config_server = ConfigServer()

@@ -5,7 +5,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session, sessionmaker
 from contextlib import contextmanager
 
-print('我是models模块，我在导入的时候被执行')
 from config import Config
 
 db_conn_str = Config.db_conn_str

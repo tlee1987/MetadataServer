@@ -13,7 +13,6 @@ from log import logger
 from config import Config, Constant
 from app.configserver import config_server
 from app.models import ClientStatus, MetadataInfo, session_scope
-print('我是client模块，我在导入的时候被执行')
 
 
 class Client:
@@ -460,80 +459,244 @@ class Client:
         data = head_pack + body_query
         conn.sendall(data)
             
-#     def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
-#                           conf_info):
-#         """
-#         :查询元数据信息
-#         """
-# #         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
-# #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
-#         client_src_id = head_unpack[5]
-#         offset = head_unpack[12]
-#         count = head_unpack[13]
-#         site_id = client_src_id
-#         
-#         bodyPack = json.loads(body.decode('utf-8'))
-# #         site_id = bodyPack.get('site_id')[0]
-# #         app_id = bodyPack.get('app_id')
-# #         user_id = bodyPack.get('user_id')
-# #         customer_id = bodyPack.get('customer_id')
-# #         timestamp = bodyPack.get('timestamp')
-# #         start = timestamp[0]
-# #         end = timestamp[1]
-# #         order_by = bodyPack.get('order_by')
-# #         desc_key = bodyPack.get('desc')
-#         
-#         query_bodyPack = self.get_conf(site_id, conf_info)
-#         if query_bodyPack:
-#             site_region_id = query_bodyPack.get(str(site_id))
-#             if site_region_id:
-#                 offset_local = 0
-#                 local_ret = self._get_local_query_data(body, sgw_info, lock,
-#                                                        offset_local, count)
-#                 remote_dict = {}
-#                 remote_dict['region_id'] = local_ret
-#                 for region_id in site_region_id:
-#                     remote_metadata_info = query_bodyPack.get(region_id)
-#                     meta_ip = str(remote_metadata_info[1])
-#                     meta_port = int(remote_metadata_info[2])
-#                     meta_src_id = remote_metadata_info[3]
-#                     addr = (meta_ip, meta_port)
-#                     sock = self._generate_meta_sock(addr)
-#                     offset_remote = 0
-#                     self._send_query_data(head_unpack, body, sock, meta_src_id,
-#                                           offset_remote, count)
-#                     meta_body = self.recv_remote_msg(sock)[1]
-#                     meta_bodypack = meta_body.decode('utf-8')
-#                     remote_ret = meta_bodypack.get('site_id')
-#                     remote_dict[region_id] = remote_ret
-#                     local_ret.extend(remote_ret)
-#                 order_by = bodyPack.get('order_by')
-#                 desc_key = bodyPack.get('desc')
-#                 local_tmp = sorted(local_ret, key=itemgetter(*order_by),
-#                                    reverse=desc_key)
-#                 ret_tmp = local_tmp[: count]
-#                 ret_tmp_set = set(ret_tmp)
-#                 local_region_id = remote_dict.get('region_id')
-#                 local_region_id_set = set(local_region_id)
-#                 local_intersection_set = local_region_id_set.intersection(ret_tmp_set)
-#                 local_intersection_list = list(local_intersection_set)
-#                 local_num = len(local_intersection_list)
-#                 local_region_id
-#                 
-#                 n = offset/count + 1
-#                 for i in range(n):
-#                     local_tmp[i*count: (i+1)*count]
-#                     
-#                 
-# #                     self.proxy_query_data(head_unpack, body, meta_body, conn,
-# #                                      sgw_info, lock)
-#                 
-# #                 self.proxy_query_data(head_unpack, body, local_ret, remote_ret, conn,
-# #                                   sgw_info, lock)
-#             else:
-#                 self.handle_local_query_data(head_unpack, body, conn, sgw_info, lock)
-#         else:
-#             self.handle_local_query_data(head_unpack, body, conn, sgw_info, lock)
+    def handle_query_data1(self, head_unpack, body, conn, sgw_info, lock,
+                          conf_info):
+        """
+        @:查询元数据信息
+        """
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        client_src_id = head_unpack[5]
+        offset = head_unpack[12]
+        count = head_unpack[13]
+        site_id = client_src_id
+        
+        body_unpack = json.loads(body.decode('utf-8'))
+        order_by = body_unpack.get('order_by')
+        desc_key = body_unpack.get('desc')
+         
+        query_body_unpack = self.get_conf(site_id, conf_info)
+        logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
+        
+        n = offset/count + 1
+        if query_body_unpack:
+            site_region_id = query_body_unpack.get(str(site_id))
+            if site_region_id:
+                if n <= 2:
+                    self.handle_query_data(head_unpack, body, conn, sgw_info,
+                                           lock, conf_info)
+                else:    
+                    offset_local = 0
+                    local_ret = self._get_local_query_data1(body, sgw_info, lock,
+                                                            offset_local, count)
+                    local_remote_dict = {}
+                    local_remote_dict['region_id'] = local_ret
+                    sock_dict = {}
+                    for region_id in site_region_id:
+                        remote_metadata_info = query_body_unpack.get(region_id)
+                        meta_ip = str(remote_metadata_info[1])
+                        meta_port = int(remote_metadata_info[2])
+                        meta_src_id = remote_metadata_info[3]
+                        addr = (meta_ip, meta_port)
+                        sock = self._generate_meta_sock(addr)
+                        sock_dict[region_id] = sock
+                        offset_remote = 0
+                        self._send_query_data1(head_unpack, body, sock, meta_src_id,
+                                              offset_remote, count)
+                        meta_body = self.recv_remote_msg(sock)[1]
+                        meta_body_unpack = json.loads(meta_body.decode('utf-8'))
+                        remote_ret = meta_body_unpack.get('site_id')
+                        local_remote_dict[region_id] = remote_ret
+                        local_ret.extend(remote_ret)
+                    local_tmp = sorted(local_ret, key=itemgetter(*order_by),
+                                       reverse=desc_key)
+                    ret_tmp = local_tmp[: count]
+                    ret_tmp_set = set(ret_tmp)
+                    
+                    local_region_id = local_remote_dict.get('region_id')
+                    local_region_id_set = set(local_region_id)
+                    local_intersection_set = local_region_id_set.intersection(ret_tmp_set)
+                    local_intersection_list = list(local_intersection_set)
+                    local_num = len(local_intersection_list)
+                    for local_item in local_intersection_list:
+                        local_tmp.remove(local_item)
+                        local_region_id.remove(local_item)
+                    offset_local = offset_local + count
+                    local_ret1 = self._get_local_query_data1(body, sgw_info, lock,
+                                                            offset_local, local_num)    
+                    local_tmp.extend(local_ret1)
+                    local_region_id.extend(local_ret1)
+                    local_remote_dict['region_id'] = local_region_id
+                    
+                    for region_id in site_region_id:
+                        remote_region_id = local_remote_dict.get(region_id)
+                        remote_region_id_set = set(remote_region_id)
+                        remote_intersection_set = remote_region_id_set.intersection(ret_tmp_set)
+                        remote_intersection_list = list(remote_intersection_set)
+                        remote_num = len(remote_intersection_list)
+                        for remote_item in remote_intersection_list:
+                            local_tmp.remove(remote_item)
+                            remote_region_id.remove(remote_item)
+                            
+                        remote_metadata_info = query_body_unpack.get(region_id)
+                        meta_src_id = remote_metadata_info[3]   
+                        sock = sock_dict.get(region_id)
+                        
+                        offset_remote = offset_remote + count
+                        self._send_query_data1(head_unpack, body, sock, meta_src_id,
+                                              offset_remote, remote_num)
+                        meta_body = self.recv_remote_msg(sock)[1]
+                        meta_body_unpack = json.loads(meta_body.decode('utf-8'))
+                        remote_ret1 = meta_body_unpack.get('site_id')
+                        local_tmp.extend(remote_ret1)
+                        remote_region_id.extend(remote_ret1)
+                        local_remote_dict[region_id] = remote_ret1
+                    
+                    local_tmp.sort(key=itemgetter(*order_by), reverse=desc_key)
+                    ret_tmp1 = local_tmp[: count]
+                    ret_tmp_set1 = set(ret_tmp1)
+                    
+                    for _ in range(n-1):
+                        local_region_id1 = local_remote_dict.get('region_id')
+                        local_region_id_set1 = set(local_region_id1)
+                        local_intersection_set1 = local_region_id_set1.intersection(ret_tmp_set1)
+                        local_intersection_list1 = list(local_intersection_set1)
+                        local_num1 = len(local_intersection_list1)
+                        for local_item1 in local_intersection_list1:
+                            local_tmp.remove(local_item1)
+                            local_region_id1.remove(local_item1)
+                        offset_local = offset_local + local_num1
+                        local_ret2 = self._get_local_query_data1(body, sgw_info, lock,
+                                                                offset_local, local_num1)    
+                        local_tmp.extend(local_ret2)
+                        local_region_id1.extend(local_ret2)
+                        local_remote_dict['region_id'] = local_region_id1
+                        
+                        for region_id in site_region_id:
+                            remote_region_id1 = local_remote_dict.get(region_id)
+                            remote_region_id_set1 = set(remote_region_id1)
+                            remote_intersection_set1 = remote_region_id_set1.intersection(ret_tmp_set1)
+                            remote_intersection_list1 = list(remote_intersection_set1)
+                            remote_num1 = len(remote_intersection_list1)
+                            for remote_item1 in remote_intersection_list1:
+                                local_tmp.remove(remote_item1)
+                                remote_region_id1.remove(remote_item1)
+                                
+                            remote_metadata_info = query_body_unpack.get(region_id)
+                            meta_src_id = remote_metadata_info[3]   
+                            sock = sock_dict.get(region_id)
+                            
+                            offset_remote = offset_remote + remote_num1
+                            self._send_query_data1(head_unpack, body, sock, meta_src_id,
+                                                  offset_remote, remote_num1)
+                            meta_body = self.recv_remote_msg(sock)[1]
+                            meta_body_unpack = json.loads(meta_body.decode('utf-8'))
+                            remote_ret2 = meta_body_unpack.get('site_id')
+                            local_tmp.extend(remote_ret2)
+                            remote_region_id1.extend(remote_ret2)
+                            local_remote_dict[region_id] = remote_ret2
+                        
+                        local_tmp.sort(key=itemgetter(*order_by), reverse=desc_key)
+                        ret_tmp1 = local_tmp[: count]
+                        ret_tmp_set1 = set(ret_tmp1)
+                        
+                    local_tmp.sort(key=itemgetter(*order_by), reverse=desc_key)
+                    rets = local_tmp[: count]
+                    self.proxy_query_data(head_unpack, rets, conn, sgw_info, lock)
+            else:
+                self.handle_local_query_data(head_unpack, body, conn, sgw_info, lock)
+        else:
+            self.handle_local_query_data(head_unpack, body, conn, sgw_info, lock)
+            
+    def _get_local_query_data1(self, body, sgw_info, lock, offset, count):
+        """
+        :MetadataServer收到查询请求后进行本地查询
+        """
+        body_unpack = json.loads(body.decode('utf-8'))
+        site_id = body_unpack.get('site_id')[0]
+        app_id = body_unpack.get('app_id')
+        user_id = body_unpack.get('user_id')
+        customer_id = body_unpack.get('customer_id')
+        timestamp = body_unpack.get('timestamp')
+        start = timestamp[0]
+        end = timestamp[1]
+        order_by = body_unpack.get('order_by')
+        desc_key = body_unpack.get('desc')
+         
+        g = self.select_addr(sgw_info, lock)[0]
+        addr = next(g)
+        sgw_ip = proxy_ip = addr[0]
+        sgw_port = proxy_port = addr[1]
+        sgw_id = proxy_id = addr[2]
+         
+        local_metadata = []
+        with session_scope() as session:
+            query = session.query(MetadataInfo)
+            filt_ret = query.filter(and_(MetadataInfo.site_id == site_id,
+                                     MetadataInfo.app_id.in_(app_id),
+                                     MetadataInfo.user_id.in_(user_id),
+                                     MetadataInfo.customer_id.in_(customer_id),
+                                     MetadataInfo.timestamp.between(start, end)))
+            if not desc_key:
+                for key in order_by:
+                    ret = filt_ret.order_by(asc(key)).all()
+            else:
+                for key in order_by:
+                    ret = filt_ret.order_by(desc(key)).all()
+             
+            for metadata_info in ret[offset: offset + count]:
+                site_id_tmp = metadata_info.site_id
+                app_id_tmp = metadata_info.app_id
+                file_name = metadata_info.file_name
+                region_id = metadata_info.region_id
+                user_id_tmp = metadata_info.user_id
+                customer_id_tmp = metadata_info.customer_id
+                timestamp_tmp = metadata_info.timestamp
+                 
+                tmp_dict = {}
+                tmp_dict['site_id'] = site_id_tmp
+                tmp_dict['app_id'] = app_id_tmp
+                tmp_dict['file_name'] = file_name
+                tmp_dict['region_id'] = region_id
+                tmp_dict['user_id'] = user_id_tmp
+                tmp_dict['customer_id'] = customer_id_tmp
+                tmp_dict['timestamp'] = timestamp_tmp
+                tmp_dict['sgw_ip'] = sgw_ip
+                tmp_dict['proxy_ip'] = proxy_ip
+                tmp_dict['sgw_port'] = sgw_port
+                tmp_dict['proxy_port'] = proxy_port
+                tmp_dict['sgw_id'] = sgw_id
+                tmp_dict['proxy_id'] = proxy_id
+                local_metadata.append(tmp_dict)
+        return local_metadata
+    
+    def _send_query_data1(self, head_unpack, body, sock, meta_src_id,
+                          offset_remote, count_remote):
+        """
+        @:向RemoteMetadataServer发送查询消息
+        """
+#         (total_size, major, minor, src_type, dst_type, src_id, client_dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        total_size = head_unpack[0]
+        trans_id = head_unpack[7]
+        sequence = head_unpack[8]
+        ack_code = head_unpack[10]
+        total = head_unpack[11]
+        offset = offset_remote
+        count = count_remote
+         
+        dst_type = Constant.METADATA_TYPE
+        src_id = int(Config.src_id, 16)
+        dst_id = int(meta_src_id, 16)
+        command = Constant.REMOTE_QUERY_DATA
+        
+        fmt_head = Constant.FMT_COMMON_HEAD
+        header = [total_size, self.major, self.minor, self.src_type, dst_type,
+                  src_id, dst_id, trans_id, sequence, command, ack_code,
+                  total, offset, count]
+        head_pack = struct.pack(fmt_head, *header)
+        data = head_pack + body
+        sock.sendall(data)
         
     def _generate_meta_sock(self, addr):
         """
@@ -545,7 +708,7 @@ class Client:
             sock.connect(addr)
         except OSError:
             logger.error('该请求的地址{}无效，与RemoteMetadataServer连接失败'.format(addr))
-            sock.close()
+#             sock.close()
         return sock
         
     def _generate_query_num(self, head_unpack, body, meta_src_id):
@@ -633,10 +796,11 @@ class Client:
         dst_id = int(meta_src_id, 16)
         command = Constant.REMOTE_QUERY_DATA
         
+        fmt_head = Constant.FMT_COMMON_HEAD
         header = [total_size, self.major, self.minor, self.src_type, dst_type,
                   src_id, dst_id, trans_id, sequence, command, ack_code,
                   total, offset, count]
-        head_pack = struct.pack(Constant.FMT_COMMON_HEAD, *header)
+        head_pack = struct.pack(fmt_head, *header)
         data = head_pack + body
         sock.sendall(data)
         
@@ -671,11 +835,13 @@ class Client:
         """
         blocks = []
         while length:
-            block = sock.recv(length)
-            if not block:
-                raise EOFError
-            length -= len(block)
-            blocks.append(block)
+            try:
+                block = sock.recv(length)
+            except OSError:
+                continue
+            else:
+                length -= len(block)
+                blocks.append(block)
         return b''.join(blocks)
      
     def recv_remote_msg(self, sock):
@@ -698,89 +864,11 @@ class Client:
         total = headpack[11]
         return total
     
-#     def proxy_query_data(self, headpack, body, meta_body, conn, sgw_info, lock):
-#         """
-#         :代理转发功能
-#         """
-#         bodyPack = json.loads(body.decode('utf-8'))
-#         user_id = bodyPack.get('user_id')[0]
-#         customer_id = bodyPack.get('customer_id')[0]
-#         
-#         metadata = {}
-#         metadata['user_id'] = user_id
-#         metadata['customer_id'] = customer_id
-#         metadata_json = json.dumps(metadata)
-#         metadata_pack = metadata_json.encode('utf-8')
-#         metadata_len = len(metadata_pack)
-#         
-# #         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
-# #          trans_id, sequence, command, ack_code, total, offset, count) = headpack
-#         client_src_id = headpack[5]
-#         trans_id = headpack[7]
-#         sequence = headpack[8]
-#         total = headpack[11]
-#         offset = headpack[12]
-#         count = headpack[13]
-#          
-# #         (meta_total_size, major, minor, meta_src_type, meta_dst_type,
-# #          meta_src_id, meta_dst_id, trans_id, sequence, meta_command,
-# #          meta_ack_code, total, offset, count) = meta_headpack
-#          
-#         task_info_size = Constant.TASKINFO_FIXED_LENGTH + metadata_len
-#         total_size = (Constant.HEAD_LENGTH + task_info_size * count)
-#         src_id = int(Config.src_id, 16)
-#         dst_id = client_src_id
-#         command = Constant.CLIENT_QUERY_DATA_RESP
-#         ack_code = Constant.ACK_CLIENT_QUERY_DATA
-#         
-#         fmt_head = Constant.FMT_COMMON_HEAD
-#         header = [total_size, self.major, self.minor, self.src_type,
-#                   self.dst_type, src_id, dst_id, trans_id, sequence, command,
-#                   ack_code, total, offset, count]
-#         headPack = struct.pack(fmt_head, *header)
-#         conn.sendall(headPack)
-#         
-#         g = self.select_addr(sgw_info, lock)[0]
-#         addr = next(g)
-#         local_sgw_ip = addr[0]
-#         local_sgw_port = addr[1]
-#         local_sgw_id = addr[2]
-#         
-#         n = task_info_size
-#         fmt_body = '!2xHIIIHH4I8x33x512sH{}s'.format(metadata_len)
-#         for i in count:
-#             metabody_tmp = meta_body[i*n : (i+1)*n]
-#             metabody_pack_tmp = struct.unpack(fmt_body, metabody_tmp)
-#             metabody_pack = metabody_pack_tmp[:-1]
-# #             (operation, region_id, site_id, app_id, timestamp, sgw_port,
-# #              proxy_port, sgw_ip, proxy_ip, file_len, file_md5, file_name,
-# #              metadata_len) = metabody_pack[:-1]
-#             region_id = metabody_pack[1]
-#             site_id = metabody_pack[2]
-#             app_id = metabody_pack[3]
-#             timestamp = metabody_pack[4]
-#             sgw_port = metabody_pack[5]
-#             sgw_ip = metabody_pack[7]
-#             sgw_id = metabody_pack[9]
-#             file_name = metabody_pack[13]
-#             metadata_len = metabody_pack[14]
-#             
-#             proxy_ip = local_sgw_ip
-#             proxy_port = local_sgw_port
-#             proxy_id = local_sgw_id
-#             fmt_resp = Constant.FMT_TASKINFO_SEND
-#             resp_body = [region_id, site_id, app_id, timestamp, sgw_port,
-#                          proxy_port, sgw_ip, proxy_ip, sgw_id, proxy_id,
-#                          file_name, metadata_len]
-#             resp_body_pack = struct.pack(fmt_resp, *resp_body)
-#             conn.sendall(resp_body_pack + metadata_pack)
-            
-    def _parse_remote_del_msg(self, sock):
+    def _parse_remote_del_msg(self, remote_head_unpack):
         """
         @:解析RemoteMetadataServer发送的删除消息
         """
-        head_unpack = self.recv_remote_msg(sock)[0]
-        ack_code = head_unpack[10]
+        ack_code = remote_head_unpack[10]
         if ack_code == Constant.ACK_REMOTE_DEL_SUCCESS:
             flag = True
         elif ack_code == Constant.ACK_REMOTE_DEL_FAILED:
@@ -917,68 +1005,6 @@ class Client:
                 tmp_dict['proxy_id'] = proxy_id
                 local_metadata.append(tmp_dict)
         return local_metadata
-    
-#     def _get_local_query_data(self, body, sgw_info, lock, offset, count):
-#         """
-#         :MetadataServer收到查询请求后进行本地查询
-#         """
-#         body_unpack = json.loads(body.decode('utf-8'))
-#         site_id = body_unpack.get('site_id')[0]
-#         app_id = body_unpack.get('app_id')
-#         user_id = body_unpack.get('user_id')
-#         customer_id = body_unpack.get('customer_id')
-#         timestamp = body_unpack.get('timestamp')
-#         start = timestamp[0]
-#         end = timestamp[1]
-#         order_by = body_unpack.get('order_by')
-#         desc_key = body_unpack.get('desc')
-#         
-#         g = self.select_addr(sgw_info, lock)[0]
-#         addr = next(g)
-#         sgw_ip = proxy_ip = addr[0]
-#         sgw_port = proxy_port = addr[1]
-#         sgw_id = proxy_id = addr[2]
-#         
-#         local_metadata = []
-#         with session_scope() as session:
-#             query = session.query(MetadataInfo)
-#             filt_ret = query.filter(and_(MetadataInfo.site_id == site_id,
-#                                      MetadataInfo.app_id.in_(app_id),
-#                                      MetadataInfo.user_id.in_(user_id),
-#                                      MetadataInfo.customer_id.in_(customer_id),
-#                                      MetadataInfo.timestamp.between(start, end)))
-#             if not desc_key:
-#                 for key in order_by:
-#                     ret = filt_ret.order_by(asc(key)).all()
-#             else:
-#                 for key in order_by:
-#                     ret = filt_ret.order_by(desc(key)).all()
-#             
-#             for metadata_info in ret[offset: offset + count]:
-#                 site_id_tmp = metadata_info.site_id
-#                 app_id_tmp = metadata_info.app_id
-#                 file_name = metadata_info.file_name
-#                 region_id = metadata_info.region_id
-#                 user_id_tmp = metadata_info.user_id
-#                 customer_id_tmp = metadata_info.customer_id
-#                 timestamp_tmp = metadata_info.timestamp
-#                 
-#                 tmp_dict = {}
-#                 tmp_dict['site_id'] = site_id_tmp
-#                 tmp_dict['app_id'] = app_id_tmp
-#                 tmp_dict['file_name'] = file_name
-#                 tmp_dict['region_id'] = region_id
-#                 tmp_dict['user_id'] = user_id_tmp
-#                 tmp_dict['customer_id'] = customer_id_tmp
-#                 tmp_dict['timestamp'] = timestamp_tmp
-#                 tmp_dict['sgw_ip'] = sgw_ip
-#                 tmp_dict['proxy_ip'] = proxy_ip
-#                 tmp_dict['sgw_port'] = sgw_port
-#                 tmp_dict['proxy_port'] = proxy_port
-#                 tmp_dict['sgw_id'] = sgw_id
-#                 tmp_dict['proxy_id'] = proxy_id
-#                 local_metadata.append(tmp_dict)
-#         return local_metadata
     
     def handle_local_query_data(self, head_unpack, body, conn, sgw_info, lock):
         """
@@ -1313,8 +1339,8 @@ class Client:
                     addr = (meta_ip, meta_port)
                     sock = self._generate_meta_sock(addr)
                     self._send_del_msg(head_unpack, body, sock, meta_src_id)
-                    remote_body = self.recv_remote_msg(sock)[1] 
-                    flag_remote = self._parse_remote_del_msg(sock)
+                    remote_head_unpack, remote_body = self.recv_remote_msg(sock) 
+                    flag_remote = self._parse_remote_del_msg(remote_head_unpack)
                     if flag_remote:
                         self.proxy_del(head_unpack, remote_body, conn,
                                        sgw_info, lock)
@@ -1337,6 +1363,7 @@ class Client:
         """
         @:代理删除
         """
+        logger.info('执行proxy_del，代理删除')
         total_size = head_unpack[0]
         client_src_id = head_unpack[5]
         trans_id = head_unpack[7]
@@ -1397,6 +1424,8 @@ class Client:
         """
 #         (total_size, major, minor, src_type, dst_type, src_id, client_dst_id,
 #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info('执行_generate_del_msg，生成向RemoteMetadataServer发起删除'
+                    '记录的请求消息')
         total_size = head_unpack[0]
         trans_id = head_unpack[7]
         sequence = head_unpack[8]
@@ -1415,6 +1444,10 @@ class Client:
                   src_id, dst_id, trans_id, sequence, command, ack_code,
                   total, offset, count]
         head_pack = struct.pack(fmt_head, *header)
+        logger.info("生成向RemoteMetadataServer发起删除请求消息的"
+                    "head：{}".format(header))
+        logger.info("生成向RemoteMetadataServer发起删除请求消息的"
+                    "body:{}".format(body))
         data = head_pack + body
         return data        
     
@@ -1422,6 +1455,7 @@ class Client:
         """
         @:向RemoteMetadataServer发送删除消息
         """
+        logger.info('执行_send_del_msg，向RemoteMetadataServer发送删除消息')
         data = self._generate_del_msg(head_unpack, body, meta_src_id)
         sock.sendall(data)
         
@@ -1472,8 +1506,8 @@ class Client:
             logger.info("处理Client删除元数据的请求,回复的body为：{}".format(body))
         else:
             flag = False
-            body_json = json.dumps(body_unpack)
-            body_pack = body_json.encode('utf-8')
+            fmt_body = Constant.FMT_TASKINFO_FIXED
+            body_pack = struct.pack(fmt_body, *body_unpack)
         return flag, body_pack    
     
     def handle_remote_del(self, head_unpack, body, conn, sgw_info, lock):

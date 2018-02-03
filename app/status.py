@@ -11,7 +11,6 @@ import psutil
 from log import logger
 from config import Config, Constant
 from app.models import MetadataStatus, session_scope
-print('我是status模块，我在导入的时候被执行')
 
 
 class StatusServer:

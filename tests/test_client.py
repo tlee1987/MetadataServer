@@ -90,11 +90,13 @@ class TestClient:
         """
         blocks = []
         while length:
-            block = self.sock.recv(length)
-            if not block:
-                raise EOFError
-            length -= len(block)
-            blocks.append(block)
+            try:
+                block = self.sock.recv(length)
+            except OSError:
+                continue
+            else:
+                length -= len(block)
+                blocks.append(block)
         return b''.join(blocks)
     
     def get_msg(self):
@@ -154,9 +156,9 @@ class TestClient:
         "order_by": [keyword1, keyword2…],
         "desc": bool}
         """
-        site_id = [1]
-        app_id = [1]
-        user_id = [1]
+        site_id = [self.src_id]
+        app_id = [3]
+        user_id = [2]
         customer_id = [1]
         timestamp = [0, int(time.time())]
         order_by = ["timestamp"]
@@ -186,7 +188,78 @@ class TestClient:
         data = head_pack + query_body_pack
         self.sock.sendall(data)
         
+    def query_data(self):
+        site_id = [self.src_id]
+        app_id = [3]
+        user_id = [2]
+        customer_id = [1]
+        timestamp = [0, int(time.time())]
+        order_by = ["timestamp"]
+        desc = False
+        
+        query_body = {}
+        query_body['site_id'] = site_id
+        query_body['app_id'] = app_id
+        query_body['user_id'] = user_id
+        query_body['customer_id'] = customer_id
+        query_body['timestamp'] = timestamp
+        query_body['order_by'] = order_by
+        query_body['desc'] = desc
+        
+        query_body_json = json.dumps(query_body)
+        query_body_pack = query_body_json.encode('utf-8')
+        body_size = len(query_body_pack)
+        
+        total_size = Constant.HEAD_LENGTH + body_size
+        command = Constant.CLIENT_QUERY_DATA
+        offset = 0
+        count = 4
+        header = [total_size, self.major, self.minor, self.src_type,
+                  self.dst_type, self.src_id, self.dst_id, trans_id,
+                  sequence, command, offset, count]
+        fmt_head = '!I4BIIQQI12xQI4x'
+        head_pack = struct.pack(fmt_head, *header)
+        
+        data = head_pack + query_body_pack
+        self.sock.sendall(data)
     
+    def delete(self):
+        region_id = 1
+        site_id = self.src_id
+        app_id = 3
+        timestamp = 1517396157
+        file_md5_tmp = '0'
+#         file_name_tmp = 'test3@' + str(timestamp) + '.tar'
+        file_name_tmp = 'test2@1517396157.tar'
+        
+        user_id = 2
+        customer_id = 1
+        metadata = {}
+        metadata['user_id'] = user_id
+        metadata['customer_id'] = customer_id
+        metadata_json = json.dumps(metadata)
+        metadata_pack = metadata_json.encode('utf-8')
+        metadata_len = len(metadata_pack)
+        
+        fmt_body = '!2xH3I28x33s512sH'
+        file_md5 = file_md5_tmp.encode('utf-8')
+        file_name = file_name_tmp.encode('utf-8')
+        body = (region_id, site_id, app_id, timestamp, file_md5,
+                file_name, metadata_len)
+        body_pack = struct.pack(fmt_body, *body)
+        body_size = len(body_pack)
+        
+        total_size = Constant.HEAD_LENGTH + body_size + metadata_len
+        command = Constant.CLIENT_DEL
+        header = [total_size, self.major, self.minor, self.src_type,
+                  self.dst_type, self.src_id, self.dst_id, trans_id,
+                  sequence, command]
+        fmt_head = '!I4BIIQQI28x'
+        head_pack = struct.pack(fmt_head, *header)
+    
+        data = head_pack + body_pack + metadata_pack
+        self.sock.sendall(data)
+        
     def data_handler(self):    
         while True:
             headpack, body = self.get_msg()
@@ -206,6 +279,16 @@ class TestClient:
                 logger.info('收到回复查询记录数量的消息的head:{}'.format(headpack))
                 logger.info('收到回复查询记录数量的消息body:{}'.format(body))
                 
+            elif command == Constant.CLIENT_DEL_RESP:
+                logger.info('收到回复删除记录的消息')
+                logger.info('收到回复删除记录的消息的head:{}'.format(headpack))
+                logger.info('收到回复删除记录的消息的body:{}'.format(body))
+                
+            elif command == Constant.CLIENT_QUERY_DATA_RESP:
+                logger.info('收到回复查询数据的消息')
+                logger.info('收到回复查询数据的消息的head:{}'.format(headpack))
+                logger.info('收到回复查询数据的消息的body:{}'.format(body))
+                
             else:
                 logger.error('使用了错误的命令字')   
                 
@@ -218,8 +301,16 @@ if __name__ == '__main__':
 #     test_client.send_hb()
     t = threading.Thread(target=test_client.data_handler)
     t.start()
-#     test_client.upload()
-    test_client.query_num()
+    for i in range(5):
+        test_client.upload()
+        time.sleep(5)
+        test_client.upload()
+        time.sleep(5)
+        test_client.upload()
+        time.sleep(5)
+#     test_client.query_num()
+#     test_client.query_data()
+#     test_client.delete()
         
         
         
