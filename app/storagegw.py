@@ -2,6 +2,7 @@
 # -*- coding=utf-8 -*-
 import struct
 import threading
+from collections import deque
 # from socket import inet_aton
 # from binascii import hexlify
 
@@ -123,7 +124,7 @@ class StorageGW:
         lock.acquire()
         try:
             if self.group_id not in sgw_info:
-                sgw_info[self.group_id] = [self.disk_free, [list(addr_info),
+                sgw_info[self.group_id] = [self.disk_free, [deque(addr_info),
                                            Config.region_id, Config.system_id,
                                            self.group_id]]
             elif (self.group_id in sgw_info and

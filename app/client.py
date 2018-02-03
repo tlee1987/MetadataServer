@@ -5,7 +5,7 @@ import json
 import time
 import socket
 import threading
-from itertools import cycle
+# from itertools import cycle
 from operator import itemgetter
 from sqlalchemy import and_, desc, asc
 
@@ -131,6 +131,34 @@ class Client:
             t = threading.Thread(target=conn.sendall, args=(response,))
             t.start()
     
+#     def select_addr(self, sgw_info, lock):
+#         """
+#         @:选择一个存储网关地址
+#         @:保存sgw信息的数据结构:
+#         {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
+#         group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
+#         ...}
+#         addr = [ip, port, sgw_id]
+#         """
+#         logger.info('选择一个存储网关地址')
+#         lock.acquire()
+#         try:
+#             values = sgw_info.values()
+#             sgw_disk_free = []
+#             sgw_disk_temp = {}    
+#             for item in values:
+#                 sgw_disk_free.append(item[0])
+#                 sgw_disk_temp[item[0]] = item[1]
+#             sgw_disk_free.sort(reverse=True)        # 按降序排列后，选取可用磁盘容量最大的值
+#             max_disk_free = sgw_disk_free[0]
+#             g = (addr for addr in cycle(sgw_disk_temp[max_disk_free][0]))
+#             region_id = sgw_disk_temp[max_disk_free][1]
+#             system_id = sgw_disk_temp[max_disk_free][2]
+#             group_id = sgw_disk_temp[max_disk_free][3]
+#             return g, region_id, system_id, group_id
+#         finally:
+#             lock.release()
+            
     def select_addr(self, sgw_info, lock):
         """
         @:选择一个存储网关地址
@@ -151,11 +179,13 @@ class Client:
                 sgw_disk_temp[item[0]] = item[1]
             sgw_disk_free.sort(reverse=True)        # 按降序排列后，选取可用磁盘容量最大的值
             max_disk_free = sgw_disk_free[0]
-            g = (addr for addr in cycle(sgw_disk_temp[max_disk_free][0]))
+            addr_temp = sgw_disk_temp[max_disk_free][0]
+            addr = addr_temp.popleft()
+            addr_temp.append(addr)
             region_id = sgw_disk_temp[max_disk_free][1]
             system_id = sgw_disk_temp[max_disk_free][2]
             group_id = sgw_disk_temp[max_disk_free][3]
-            return g, region_id, system_id, group_id
+            return addr, region_id, system_id, group_id
         finally:
             lock.release()
         
