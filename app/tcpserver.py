@@ -6,6 +6,7 @@ import struct
 import selectors
 import threading
 from multiprocessing import Process, Manager, Lock
+from collections import deque
 
 from log import logger
 from config import Config, Constant
@@ -301,9 +302,9 @@ if __name__ == '__main__':
     m = Manager()
     version_info = m.dict()
     sgw_info = m.dict()
-    sgw_info = {2: [1024000, [[(3232252929, 8000, 1000),
-                               (3232252930, 8000, 1001),
-                               (3232252931, 8000, 1002)], 1, 1, 1]]}
+    sgw_info = {2: [1024000, [deque([(3232252929, 8000, 1000),
+                                     (3232252930, 8000, 1001),
+                                     (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
     config_server.send_hb()
     conf_recv_thread = threading.Thread(target=config_server.data_handler,
