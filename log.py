@@ -3,8 +3,8 @@
 import os
 import time
 import codecs
-from logging import FileHandler
 import logging.config
+from logging import FileHandler
 
 from config import basedir
 
