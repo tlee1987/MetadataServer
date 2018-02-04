@@ -8,7 +8,8 @@ from collections import deque
 
 from log import logger
 from config import Config, Constant
-from app.models import SgwStaus, session_scope
+from app.models import SgwStaus
+# from app.models import session_scope
 
 addr_info = set()
 
@@ -82,7 +83,7 @@ class StorageGW:
         head_pack = struct.pack(fmt_head, *header)
         return head_pack
     
-    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock):
+    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sql_queue):
         """
         @:处理sgw心跳消息
         """
@@ -94,9 +95,11 @@ class StorageGW:
             t = threading.Thread(target=conn.sendall, args=(response,))
             t.start()
             self.register_sgw(head_unpack, sgw_info, lock)
+            
+            sql_queue.put_nowait(self.sgw_status)
              
-            with session_scope() as session:
-                session.add(self.sgw_status)
+#             with session_scope() as session:
+#                 session.add(self.sgw_status)
         else:
             sel.unregister(conn)
             conn.close()

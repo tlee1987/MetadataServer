@@ -82,7 +82,8 @@ class Client:
         else:
             logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
         
-    def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
+    def handle_hb(self, head_unpack, body, conn, conf_info, version_info,
+                  sql_queue):
         """
         @:处理Client心跳消息
         @:心跳消息内容字段：
@@ -107,8 +108,9 @@ class Client:
                                          client_version=client_version,
                                          transactions_num=transactions_num,
                                          timestamp=timestamp)
-            with session_scope() as session:
-                session.add(client_status)
+            sql_queue.put_nowait(client_status)    
+#             with session_scope() as session:
+#                 session.add(client_status)
             
             if str(site_id) not in version_info:
                 conf_body_unpack = self.get_conf(site_id, conf_info)
@@ -189,7 +191,7 @@ class Client:
         finally:
             lock.release()
         
-    def handle_upload(self, head_unpack, body, conn, sgw_info, lock):
+    def handle_upload(self, head_unpack, body, conn, sgw_info, lock, sql_queue):
         """
         @:处理Client转存路径请求
         (operation, region_id, site_id, app_id, timestamp, sgw_port,
@@ -273,10 +275,11 @@ class Client:
                                      user_id=user_id,
                                      customer_id=customer_id,
                                      timestamp=timestamp)
-        with session_scope() as session:
-            session.add(metadata_info)
+        sql_queue.put_nowait(metadata_info)
+#         with session_scope() as session:
+#             session.add(metadata_info)
         
-    def handle_upload_success(self, body, metadata_info):
+    def handle_upload_success(self, body, metadata_info, sql_queue):
         """
         @:在处理上传请求时，由于还没有确认文件是否上传成功，那时还没有将元数据写入数据库，构造出以file_md5为键，
         @:以要存入数据库的的元数据信息为值的全局域字典。在获得上传成功的命令字后，再写入数据库。
@@ -298,8 +301,9 @@ class Client:
                                         user_id=metadata_internal[6],
                                         customer_id=metadata_internal[7],
                                         timestamp=metadata_internal[8])
-            with session_scope() as session:
-                session.add(metadata_sql)
+            sql_queue.put_nowait(metadata_sql)
+#             with session_scope() as session:
+#                 session.add(metadata_sql)
             
             metadata_info.pop(file_md5)
             
