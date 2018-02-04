@@ -5,7 +5,9 @@ import socket
 import struct
 import selectors
 import threading
-from multiprocessing import Process, Manager, Lock, Queue
+from queue import Empty
+from multiprocessing import Process, Manager, Lock
+# from multiprocessing import Queue
 from collections import deque
 
 from log import logger
@@ -71,8 +73,7 @@ class TcpServer:
 #                     else:
 #                         data = data[total_size:]
 
-    def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info,
-               sql_queue):
+    def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info):
         """
         @:接受连接请求
         """
@@ -110,8 +111,7 @@ class TcpServer:
         body = self.recvall(conn, body_size)
         return head_unpack, body
         
-    def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info,
-             sql_queue):
+    def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info):
         """
         """
         head_unpack, body = self.get_msg(conn)
@@ -119,12 +119,12 @@ class TcpServer:
             logger.info("head_unpack：{}".format(head_unpack))
             logger.info("body:{}".format(body))
             self.data_handler(head_unpack, body, conn, sel, sgw_info,
-                              lock, conf_info, version_info, sql_queue)
+                              lock, conf_info, version_info)
         except:
             logger.error('数据处理出现错误')
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
-                     conf_info, version_info, sql_queue):
+                     conf_info, version_info):
         """
         @:对收到的数据进行业务处理
         (total_size, major, minor, src_type, dst_type, src_id, dst_id, trans_id,
@@ -145,11 +145,10 @@ class TcpServer:
                 logger.error('sgw心跳的消息体解析出错')
             else:
                 storagegw = StorageGW(*body_unpack)
-#                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock,
-#                                     sql_queue)
+#                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
                 t = threading.Thread(target=storagegw.handle_hb,
                                      args=(head_unpack, conn, sel, sgw_info,
-                                           lock, sql_queue))
+                                           lock))
                 t.start()
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
              
@@ -159,11 +158,10 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-#             client.handle_hb(head_unpack, body, conn, conf_info, version_info,
-#                              sql_queue)
+#             client.handle_hb(head_unpack, body, conn, conf_info, version_info)
             t = threading.Thread(target=client.handle_hb,
                                  args=(head_unpack, body, conn, conf_info,
-                                       version_info, sql_queue))
+                                       version_info))
             t.start()
             
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
@@ -174,8 +172,7 @@ class TcpServer:
             logger.info(sgw_info)
             client = Client()
             try:
-                client.handle_upload(head_unpack, body, conn, sgw_info, lock,
-                                     sql_queue)
+                client.handle_upload(head_unpack, body, conn, sgw_info, lock)
             except:
                 logger.error('sgw还没有发心跳消息注册，无存储网关信息')
             
@@ -255,8 +252,7 @@ class TcpServer:
         else:
             logger.error('解析到未定义的命令字')
         
-    def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
-            sql_queue):
+    def run(self, listener, sel, sgw_info, lock, conf_info, version_info):
         conf_recv_thread = threading.Thread(target=config_server.data_handler,
                                             args=(conf_info,))
         conf_recv_thread.start()
@@ -266,7 +262,7 @@ class TcpServer:
             for key, mask in events:
                 callback = key.data
                 callback(key.fileobj, mask, sel, sgw_info, lock, conf_info,
-                         version_info, sql_queue)
+                         version_info)
 
 
 def _generate_srv_sock():
@@ -303,17 +299,22 @@ def _get_workers():
             workers = Constant.DEFAULT_WORKERS
     return workers   
 
-def write_sql(sql_queue): 
-    with session_scope as session:
-        if sql_queue.qsize():  
-            item = sql_queue.get_nowait()
-            session.add(item)
-    
+def write_sql(sql_queue):
+    with session_scope() as session:
+        while True:
+            try:    
+                logger.info('sql_queue数量为:{}'.format(sql_queue.qsize()))
+                item = sql_queue.get(block=True, timeout=2)
+            except Empty:
+                logger.warning("现在队列sql_queue为空")
+            else:
+                session.add(item)
+            
     
 if __name__ == '__main__':
     lock = Lock()
     m = Manager()
-    sql_queue = Queue()
+#     sql_queue = Queue()
     version_info = m.dict()
     sgw_info = m.dict()
     sgw_info = {2: [1024000, [deque([(3232252929, 8000, 1000),
@@ -326,18 +327,17 @@ if __name__ == '__main__':
     conf_recv_thread.start()
     
     status_server = StatusServer()
-    status_server_thread = threading.Thread(target=status_server.send_hb,
-                                            args=(sql_queue,))
+    status_server_thread = threading.Thread(target=status_server.send_hb)
     status_server_thread.start()
     
-    sql_process = Process(target=write_sql, args=(sql_queue,))
-    sql_process.start()
+#     sql_process = Process(target=write_sql, args=(sql_queue,))
+#     sql_process.start()
     
     listener = _generate_srv_sock()
     workers = _get_workers()
     workers = 4
     sel = selectors.DefaultSelector()
-    params = (listener, sel, sgw_info, lock, conf_info, version_info, sql_queue)
+    params = (listener, sel, sgw_info, lock, conf_info, version_info)
     
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')

@@ -109,27 +109,25 @@ class StatusServer:
         data = head_pack + body.encode('utf-8')
         return data
 
-    def send_hb_timer(self, sql_queue):
+    def send_hb_timer(self):
         """
         @:构造往数据库写状态消息的定时器
         """
 #         data = self.generate_hb()
 #         self.sock.sendall(data)
         self.get_info()
-        sql_queue.put_nowait(self.metadata_status)
-#         with session_scope() as session:
-#             session.add(self.metadata_status)
+        logger.info('metadata_status:{}'.format(self.metadata_status))
+        with session_scope() as session:
+            session.add(self.metadata_status)
         global timer
-        timer = threading.Timer(Constant.TIME, self.send_hb_timer,
-                                args=(sql_queue,))
+        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
      
-    def send_hb(self, sql_queue):
+    def send_hb(self):
         """
         @:定时写状态信息
         """       
-        timer = threading.Timer(Constant.TIME, self.send_hb_timer,
-                                args=(sql_queue,))
+        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
 
 
