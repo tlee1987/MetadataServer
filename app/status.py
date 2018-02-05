@@ -116,7 +116,7 @@ class StatusServer:
 #         data = self.generate_hb()
 #         self.sock.sendall(data)
         self.get_info()
-        logger.info('metadata_status:{}'.format(self.metadata_status))
+#         logger.info('metadata_status:{}'.format(self.metadata_status))
         with session_scope() as session:
             session.add(self.metadata_status)
         global timer

@@ -4,7 +4,6 @@ import struct
 import json
 import time
 import socket
-import threading
 # from itertools import cycle
 from operator import itemgetter
 from sqlalchemy import and_, desc, asc
@@ -128,9 +127,7 @@ class Client:
             
             response = self._generate_resp_hb(head_unpack, config_version,
                                               client_version)
-#             conn.sendall(response)
-            t = threading.Thread(target=conn.sendall, args=(response,))
-            t.start()
+            conn.sendall(response)
     
 #     def select_addr(self, sgw_info, lock):
 #         """
@@ -511,11 +508,11 @@ class Client:
         query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
         
-        n = offset/count + 1
+        n = int(offset/count) + 1
         if query_body_unpack:
             site_region_id = query_body_unpack.get(str(site_id))
             if site_region_id:
-                if n <= 2:
+                if n <= 5:
                     self.handle_query_data(head_unpack, body, conn, sgw_info,
                                            lock, conf_info)
                 else:    

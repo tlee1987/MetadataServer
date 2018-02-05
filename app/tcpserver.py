@@ -5,10 +5,10 @@ import socket
 import struct
 import selectors
 import threading
-from queue import Empty
 from multiprocessing import Process, Manager, Lock
+# from queue import Empty
 # from multiprocessing import Queue
-from collections import deque
+# from collections import deque
 
 from log import logger
 from config import Config, Constant
@@ -16,7 +16,7 @@ from app.storagegw import StorageGW
 from app.client import Client
 from app.configserver import config_server
 from app.status import StatusServer
-from app.models import session_scope
+# from app.models import session_scope
 
 
 class TcpServer:
@@ -24,55 +24,6 @@ class TcpServer:
     def __init__(self):
         pass
     
-#     def read(self, conn, mask, sgw_info, lock, queue_recv, conf_info):
-#         """
-#         @:解析收到的数据
-#         """
-#         logger.info('解析收到的数据...')
-#         data = b''
-#         while True:
-#             try:
-#                 more = conn.recv(Constant.BUFSIZE)
-#             except EOFError:
-#                 logger.warning("Client socket to {} has "
-#                                "closed.".format(conn.getpeername()))
-#                 break
-# #             except OSError:
-# #                 continue
-#             except Exception as e:
-#                 logger.error("Client {1} error:{0}".format(e, conn.getpeername()))
-#                 break
-#             else:
-#                 if not more:
-#                     logger.info('我有跳出循环')
-# #                     self.sel.unregister(conn)
-#                     break
-#                 data += more
-#                 while True:
-#                     if len(data) < Constant.HEAD_LENGTH:
-#                         logger.warning('接收到的数据包长度为{}，小于消息头部长度64，'
-#                                        '继续接收数据'.format(len(data)))
-#                         break
-#                     head_unpack = struct.unpack(Constant.FMT_COMMON_HEAD,
-#                                              data[:Constant.HEAD_LENGTH])
-#                     total_size = head_unpack[0]
-#       
-#                     if len(data) < total_size:
-#                         logger.warning('接收到的数据包长度为{}，总共为{}，数据包不完整，'
-#                                        '继续接收数据'.format(len(data), total_size))
-#                         break
-#                     body = data[Constant.HEAD_LENGTH: total_size]
-#                     try:
-#                         logger.info("head_unpack：{}".format(head_unpack))
-#                         logger.info("body:{}".format(body))
-#                         self.data_handler(head_unpack, body, conn, self.sel,
-#                                           sgw_info, lock, queue_recv, conf_info)
-#                     except:
-#                         logger.error('数据处理出现错误')
-#                         break
-#                     else:
-#                         data = data[total_size:]
-
     def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info):
         """
         @:接受连接请求
@@ -299,27 +250,15 @@ def _get_workers():
             workers = Constant.DEFAULT_WORKERS
     return workers   
 
-def write_sql(sql_queue):
-    with session_scope() as session:
-        while True:
-            try:    
-                logger.info('sql_queue数量为:{}'.format(sql_queue.qsize()))
-                item = sql_queue.get(block=True, timeout=2)
-            except Empty:
-                logger.warning("现在队列sql_queue为空")
-            else:
-                session.add(item)
-            
     
 if __name__ == '__main__':
     lock = Lock()
     m = Manager()
-#     sql_queue = Queue()
     version_info = m.dict()
     sgw_info = m.dict()
-    sgw_info = {2: [1024000, [deque([(3232252929, 8000, 1000),
-                                     (3232252930, 8000, 1001),
-                                     (3232252931, 8000, 1002)]), 1, 1, 1]]}
+#     sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
+#                                      (3232252930, 8000, 1001),
+#                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
     config_server.send_hb()
     conf_recv_thread = threading.Thread(target=config_server.data_handler,
@@ -327,22 +266,18 @@ if __name__ == '__main__':
     conf_recv_thread.start()
     
     status_server = StatusServer()
-    status_server_thread = threading.Thread(target=status_server.send_hb)
-    status_server_thread.start()
-    
-#     sql_process = Process(target=write_sql, args=(sql_queue,))
-#     sql_process.start()
+    status_server.send_hb()
     
     listener = _generate_srv_sock()
     workers = _get_workers()
-    workers = 4
+#     workers = 2
     sel = selectors.DefaultSelector()
     params = (listener, sel, sgw_info, lock, conf_info, version_info)
     
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')
     logger.info('Listening at:{}'.format(listener.getsockname()))
-#     tcp_server.run(params)
+#     tcp_server.run(listener, sel, sgw_info, lock, conf_info, version_info)
     for i in range(workers):
         logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
         p = Process(target=tcp_server.run, args=params)

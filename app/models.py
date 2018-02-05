@@ -1,9 +1,9 @@
 '''Created on 2017年12月26日@author: litian'''
+from contextlib import contextmanager
 from sqlalchemy import (Column, Table, MetaData, String, SmallInteger,
                         Integer, BigInteger, create_engine)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session, sessionmaker
-from contextlib import contextmanager
 
 from config import Config
 
@@ -146,6 +146,7 @@ def session_scope():
         raise
     finally:
         session.close()
+        
 
 
     

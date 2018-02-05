@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
 import struct
-import threading
 from collections import deque
 # from socket import inet_aton
 # from binascii import hexlify
@@ -91,14 +90,14 @@ class StorageGW:
         if (self.region_id == Config.region_id and
                                 self.system_id == Config.system_id):
             response = self._generate_resp_hb(head_unpack)
-#             conn.sendall(response)
-            t = threading.Thread(target=conn.sendall, args=(response,))
-            t.start()
+            conn.sendall(response)
             self.register_sgw(head_unpack, sgw_info, lock)
             
 #             sql_queue.put_nowait(self.sgw_status)
             with session_scope() as session:
                 session.add(self.sgw_status)
+#             session = session_scope()
+#             session.add(self.sgw_status)
         else:
             sel.unregister(conn)
             conn.close()
@@ -122,7 +121,7 @@ class StorageGW:
 #         addr_converted = (ip, addr[1], sgw_id)
         addr_converted = (self.listen_ip, self.listen_port, sgw_id)
         addr_info.add(addr_converted)
-        
+            
         lock.acquire()
         try:
             if self.group_id not in sgw_info:
