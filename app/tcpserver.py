@@ -249,13 +249,6 @@ def _get_workers():
         if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
             workers = Constant.DEFAULT_WORKERS
     return workers   
-
-def handle_conf(conf_info):
-    config_server.send_hb()
-    conf_recv_thread = threading.Thread(target=config_server.data_handler,
-                                        args=(conf_info,))
-    conf_recv_thread.start()
-    
     
 if __name__ == '__main__':
     lock = Lock()
@@ -266,12 +259,10 @@ if __name__ == '__main__':
 #                                      (3232252930, 8000, 1001),
 #                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
-#     config_server.send_hb()
-#     conf_recv_thread = threading.Thread(target=config_server.data_handler,
-#                                         args=(conf_info,))
-#     conf_recv_thread.start()
-    conf_process = Process(target=handle_conf, args=(conf_info,))
-    conf_process.start()
+    config_server.send_hb()
+    conf_recv_thread = threading.Thread(target=config_server.data_handler,
+                                        args=(conf_info,))
+    conf_recv_thread.start()
     
     status_server = StatusServer()
     status_server.send_hb()
