@@ -24,11 +24,10 @@ class StorageGW:
     group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
     ...}
     """
-    def __init__(self, sgw_id, region_id, system_id, group_id, sgw_version,
+    def __init__(self, region_id, system_id, group_id, sgw_version,
                  listen_ip, listen_port, timestamp, cpu_percent, mem_total,
                  mem_free, disk_used, disk_free, netio_input, netio_output,
                  conn_state, conn_dealed):
-        self.sgw_id = sgw_id
         self.region_id = region_id
         self.system_id = system_id
         self.group_id = group_id

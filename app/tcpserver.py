@@ -97,8 +97,7 @@ class TcpServer:
             except:
                 logger.error('sgw心跳的消息体解析出错')
             else:
-                sgw_id = head_unpack[5]
-                storagegw = StorageGW(sgw_id, *body_unpack)
+                storagegw = StorageGW(*body_unpack)
 #                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
                 t = threading.Thread(target=storagegw.handle_hb,
                                      args=(head_unpack, conn, sel, sgw_info,
