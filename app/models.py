@@ -1,7 +1,7 @@
 '''Created on 2017年12月26日@author: litian'''
 from contextlib import contextmanager
-from sqlalchemy import (Column, Table, MetaData, String, SmallInteger,
-                        Integer, BigInteger, create_engine)
+from sqlalchemy import (Column, Table, MetaData, String, SmallInteger, Boolean,
+                        Integer, BigInteger, create_engine, ForeignKey)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import scoped_session, sessionmaker
 
@@ -36,7 +36,14 @@ sgw_status = Table('sgw_status', metadata,
                    Column('netio_input', BigInteger),
                    Column('netio_output', BigInteger),
                    Column('conn_state', BigInteger),
-                   Column('conn_dealed', BigInteger))
+                   Column('conn_dealed', BigInteger),
+                   Column('sgw_id', BigInteger, ForeignKey('sgw_static.sgw_id')))
+
+sgw_static = Table('sgw_static', metadata,
+                   Column('sgw_id', BigInteger, primary_key=True),
+                   Column('sgw_ip', String(20)),
+                   Column('region_id', Integer),
+                   Column('status', Boolean))
 
 metadata_status = Table('metadata_status', metadata,
                         Column('id', Integer, primary_key=True),
@@ -99,7 +106,15 @@ class SgwStaus(Base):
     netio_output = Column(BigInteger)
     conn_state = Column(BigInteger)
     conn_dealed = Column(BigInteger)
+    sgw_id = Column(Integer, ForeignKey('sgw_static.sgw_id'))
 
+class SgwStatic(Base):
+    __tablename__ = 'sgw_static'
+    
+    sgw_id = Column(BigInteger, primary_key=True)
+    sgw_ip = Column(String(20))
+    region_id = Column(Integer)
+    status = Column(Boolean)
 
 class MetadataStatus(Base):
     __tablename__ = 'metadata_status'

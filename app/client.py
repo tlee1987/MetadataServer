@@ -512,7 +512,7 @@ class Client:
         if query_body_unpack:
             site_region_id = query_body_unpack.get(str(site_id))
             if site_region_id:
-                if n <= 5:
+                if n <= 10:
                     self.handle_query_data(head_unpack, body, conn, sgw_info,
                                            lock, conf_info)
                 else:    

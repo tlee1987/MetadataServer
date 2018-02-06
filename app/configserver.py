@@ -239,6 +239,7 @@ class ConfigServer:
             if command == Constant.CONFIG_HB_RESP:
                 logger.info('收到ConfigServer心跳回复消息')
                 logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
+                
             elif command == Constant.CONFIG_QUERY_RESP:
                 """
                 @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
@@ -246,11 +247,16 @@ class ConfigServer:
                 logger.info('收到ConfigServer回复的查询消息')
                 body_unpack = json.loads(body.decode('utf-8'))
                 conf_info[key] = body_unpack
+                
             elif command == Constant.CONFIG_INFO:
                 logger.info('配置有变更，ConfigServer主动下发通知')
                 body_unpack = json.loads(body.decode('utf-8'))
                 conf_info[key] = body_unpack
-
+                
+#             else:
+#                 logger.info('接受ConfigServer消息有误')
+#                 break
+            
 
 config_server = ConfigServer()
 

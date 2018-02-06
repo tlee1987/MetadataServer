@@ -24,7 +24,8 @@ class TcpServer:
     def __init__(self):
         pass
     
-    def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info):
+    def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info,
+               sgw_id_list):
         """
         @:接受连接请求
         """
@@ -62,7 +63,8 @@ class TcpServer:
         body = self.recvall(conn, body_size)
         return head_unpack, body
         
-    def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info):
+    def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info,
+             sgw_id_list):
         """
         """
         head_unpack, body = self.get_msg(conn)
@@ -70,12 +72,12 @@ class TcpServer:
             logger.info("head_unpack：{}".format(head_unpack))
             logger.info("body:{}".format(body))
             self.data_handler(head_unpack, body, conn, sel, sgw_info,
-                              lock, conf_info, version_info)
+                              lock, conf_info, version_info, sgw_id_list)
         except:
             logger.error('数据处理出现错误')
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
-                     conf_info, version_info):
+                     conf_info, version_info, sgw_id_list):
         """
         @:对收到的数据进行业务处理
         (total_size, major, minor, src_type, dst_type, src_id, dst_id, trans_id,
@@ -95,11 +97,12 @@ class TcpServer:
             except:
                 logger.error('sgw心跳的消息体解析出错')
             else:
-                storagegw = StorageGW(*body_unpack)
+                sgw_id = head_unpack[5]
+                storagegw = StorageGW(sgw_id, *body_unpack)
 #                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
                 t = threading.Thread(target=storagegw.handle_hb,
                                      args=(head_unpack, conn, sel, sgw_info,
-                                           lock))
+                                           lock, sgw_id_list))
                 t.start()
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
              
@@ -147,7 +150,7 @@ class TcpServer:
             """
             logger.info('收到Client查询数据的请求')
             client = Client()
-            client.handle_query_data(head_unpack, body, conn, sgw_info, lock,
+            client.handle_query_data1(head_unpack, body, conn, sgw_info, lock,
                                      conf_info)
                     
         elif command == Constant.REMOTE_QUERY_NUM:
@@ -203,7 +206,8 @@ class TcpServer:
         else:
             logger.error('解析到未定义的命令字')
         
-    def run(self, listener, sel, sgw_info, lock, conf_info, version_info):
+    def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
+            sgw_id_list):
         conf_recv_thread = threading.Thread(target=config_server.data_handler,
                                             args=(conf_info,))
         conf_recv_thread.start()
@@ -213,7 +217,7 @@ class TcpServer:
             for key, mask in events:
                 callback = key.data
                 callback(key.fileobj, mask, sel, sgw_info, lock, conf_info,
-                         version_info)
+                         version_info, sgw_id_list)
 
 
 def _generate_srv_sock():
@@ -255,6 +259,7 @@ if __name__ == '__main__':
     m = Manager()
     version_info = m.dict()
     sgw_info = m.dict()
+    sgw_id_list = m.list()
 #     sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
 #                                      (3232252930, 8000, 1001),
 #                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
@@ -271,12 +276,14 @@ if __name__ == '__main__':
     workers = _get_workers()
 #     workers = 2
     sel = selectors.DefaultSelector()
-    params = (listener, sel, sgw_info, lock, conf_info, version_info)
+    params = (listener, sel, sgw_info, lock, conf_info, version_info,
+              sgw_id_list)
     
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')
     logger.info('Listening at:{}'.format(listener.getsockname()))
-#     tcp_server.run(listener, sel, sgw_info, lock, conf_info, version_info)
+#     tcp_server.run(listener, sel, sgw_info, lock, conf_info, version_info,
+#                    sgw_id_list)
     for i in range(workers):
         logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
         p = Process(target=tcp_server.run, args=params)

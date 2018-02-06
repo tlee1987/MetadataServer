@@ -7,7 +7,7 @@ from collections import deque
 
 from log import logger
 from config import Config, Constant
-from app.models import SgwStaus
+from app.models import SgwStaus, SgwStatic
 from app.models import session_scope
 
 addr_info = set()
@@ -24,10 +24,11 @@ class StorageGW:
     group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
     ...}
     """
-    def __init__(self, region_id, system_id, group_id, sgw_version, listen_ip,
-                 listen_port, timestamp, cpu_percent, mem_total, mem_free,
-                 disk_used, disk_free, netio_input, netio_output,
+    def __init__(self, sgw_id, region_id, system_id, group_id, sgw_version,
+                 listen_ip, listen_port, timestamp, cpu_percent, mem_total,
+                 mem_free, disk_used, disk_free, netio_input, netio_output,
                  conn_state, conn_dealed):
+        self.sgw_id = sgw_id
         self.region_id = region_id
         self.system_id = system_id
         self.group_id = group_id
@@ -82,7 +83,7 @@ class StorageGW:
         head_pack = struct.pack(fmt_head, *header)
         return head_pack
     
-    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock):
+    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sgw_id_list):
         """
         @:处理sgw心跳消息
         """
@@ -91,7 +92,7 @@ class StorageGW:
                                 self.system_id == Config.system_id):
             response = self._generate_resp_hb(head_unpack)
             conn.sendall(response)
-            self.register_sgw(head_unpack, sgw_info, lock)
+            self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list)
             
 #             sql_queue.put_nowait(self.sgw_status)
             with session_scope() as session:
@@ -104,7 +105,7 @@ class StorageGW:
             logger.error('sgw心跳消息中的region_id或者system_id与Metadata Server'
                          '本地配置的region_id和system_id不一致')
             
-    def register_sgw(self, head_unpack, sgw_info, lock):
+    def register_sgw(self, head_unpack, conn, sgw_info, lock, sgw_id_list):
         """
         @:网关注册
         {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
@@ -114,16 +115,27 @@ class StorageGW:
         """
         logger.info('执行register_sgw,注册sgw网关信息')
         sgw_id = head_unpack[5]
-#         addr = conn.getpeername()
+        addr = conn.getpeername()
+        sgw_ip = addr[0]
 #         ip_bin = inet_aton(addr[0])   
 #         ip_hex = hexlify(ip_bin)
 #         ip = int(ip_hex.decode('utf-8'), 16)
 #         addr_converted = (ip, addr[1], sgw_id)
         addr_converted = (self.listen_ip, self.listen_port, sgw_id)
         addr_info.add(addr_converted)
-            
+        
         lock.acquire()
         try:
+            if sgw_id not in sgw_id_list:
+                sgw_id_list.append(sgw_id)
+                logger.info('sgw_id_list:{}'.format(sgw_id_list))
+                sgw_static = SgwStatic(sgw_id=sgw_id,
+                                       sgw_ip=sgw_ip,
+                                       region_id=self.region_id,
+                                       status=True)
+                with session_scope() as session:
+                    session.add(sgw_static)
+                    
             if self.group_id not in sgw_info:
                 sgw_info[self.group_id] = [self.disk_free, [deque(addr_info),
                                            Config.region_id, Config.system_id,
