@@ -24,10 +24,10 @@ class StorageGW:
     group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
     ...}
     """
-    def __init__(self, region_id, system_id, group_id, sgw_version,
+    def __init__(self, sgw_id, region_id, system_id, group_id, sgw_version,
                  listen_ip, listen_port, timestamp, cpu_percent, mem_total,
-                 mem_free, disk_used, disk_free, netio_input, netio_output,
-                 conn_state, conn_dealed):
+                 mem_free, disk_used, disk_free, conn_state, conn_dealed,
+                 netio_input, netio_output):
         self.region_id = region_id
         self.system_id = system_id
         self.group_id = group_id
@@ -45,10 +45,11 @@ class StorageGW:
                                    mem_free=mem_free,
                                    disk_used=disk_used,
                                    disk_free=disk_free,
+                                   conn_state=conn_state,
+                                   conn_dealed=conn_dealed,
                                    netio_input=netio_input,
                                    netio_output=netio_output,
-                                   conn_state=conn_state,
-                                   conn_dealed=conn_dealed)
+                                   sgw_id=sgw_id)
     
     def _generate_resp_hb(self, head_unpack):
         """
@@ -127,7 +128,8 @@ class StorageGW:
         try:
             if sgw_id not in sgw_id_list:
                 sgw_id_list.append(sgw_id)
-                logger.info('sgw_id_list:{}'.format(sgw_id_list))
+                logger.info('执行register_sgw后，'
+                            'sgw_id_list:{}'.format(sgw_id_list))
                 sgw_static = SgwStatic(sgw_id=sgw_id,
                                        sgw_ip=sgw_ip,
                                        region_id=self.region_id,

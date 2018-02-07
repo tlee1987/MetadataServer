@@ -33,11 +33,11 @@ sgw_status = Table('sgw_status', metadata,
                    Column('mem_free', BigInteger),
                    Column('disk_used', BigInteger),
                    Column('disk_free', BigInteger),
-                   Column('netio_input', BigInteger),
-                   Column('netio_output', BigInteger),
                    Column('conn_state', BigInteger),
                    Column('conn_dealed', BigInteger),
-                   Column('sgw_id', BigInteger, ForeignKey('sgw_static.sgw_id')))
+                   Column('netio_input', BigInteger),
+                   Column('netio_output', BigInteger),
+                   Column('sgw_id', BigInteger))
 
 sgw_static = Table('sgw_static', metadata,
                    Column('sgw_id', BigInteger, primary_key=True),
@@ -102,10 +102,10 @@ class SgwStaus(Base):
     mem_free = Column(BigInteger)
     disk_used = Column(BigInteger)
     disk_free = Column(BigInteger) 
-    netio_input = Column(BigInteger)
-    netio_output = Column(BigInteger)
     conn_state = Column(BigInteger)
     conn_dealed = Column(BigInteger)
+    netio_input = Column(BigInteger)
+    netio_output = Column(BigInteger)
     sgw_id = Column(Integer, ForeignKey('sgw_static.sgw_id'))
 
 class SgwStatic(Base):

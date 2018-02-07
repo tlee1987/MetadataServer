@@ -97,7 +97,8 @@ class TcpServer:
             except:
                 logger.error('sgw心跳的消息体解析出错')
             else:
-                storagegw = StorageGW(*body_unpack)
+                sgw_id = head_unpack[5]
+                storagegw = StorageGW(sgw_id, *body_unpack)
 #                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
                 t = threading.Thread(target=storagegw.handle_hb,
                                      args=(head_unpack, conn, sel, sgw_info,
@@ -207,9 +208,9 @@ class TcpServer:
         
     def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
             sgw_id_list):
-        conf_recv_thread = threading.Thread(target=config_server.data_handler,
-                                            args=(conf_info,))
-        conf_recv_thread.start()
+#         conf_recv_thread = threading.Thread(target=config_server.data_handler,
+#                                             args=(conf_info,))
+#         conf_recv_thread.start()
         sel.register(listener, selectors.EVENT_READ, self.accept)
         while True:
             events = sel.select()
@@ -263,10 +264,10 @@ if __name__ == '__main__':
 #                                      (3232252930, 8000, 1001),
 #                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
-    config_server.send_hb()
-    conf_recv_thread = threading.Thread(target=config_server.data_handler,
-                                        args=(conf_info,))
-    conf_recv_thread.start()
+#     config_server.send_hb()
+#     conf_recv_thread = threading.Thread(target=config_server.data_handler,
+#                                         args=(conf_info,))
+#     conf_recv_thread.start()
     
     status_server = StatusServer()
     status_server.send_hb()
