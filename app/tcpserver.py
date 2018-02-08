@@ -220,9 +220,9 @@ class TcpServer:
         
     def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
             sgw_id_list):
-        # conf_recv_thread = threading.Thread(target=config_server.conf_read,
-        #                                     args=(conf_info,))
-        # conf_recv_thread.start()
+        conf_recv_thread = threading.Thread(target=config_server.conf_read,
+                                            args=(conf_info,))
+        conf_recv_thread.start()
         sel.register(listener, selectors.EVENT_READ, self.accept)
         while True:
             events = sel.select()
