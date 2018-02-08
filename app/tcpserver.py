@@ -220,9 +220,9 @@ class TcpServer:
         
     def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
             sgw_id_list):
-        conf_recv_thread = threading.Thread(target=config_server.conf_read,
-                                            args=(conf_info,))
-        conf_recv_thread.start()
+        # conf_recv_thread = threading.Thread(target=config_server.conf_read,
+        #                                     args=(conf_info,))
+        # conf_recv_thread.start()
         sel.register(listener, selectors.EVENT_READ, self.accept)
         while True:
             events = sel.select()
@@ -272,9 +272,9 @@ if __name__ == '__main__':
     version_info = m.dict()
     sgw_info = m.dict()
     sgw_id_list = m.list()
-#     sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
-#                                          (3232252930, 8000, 1001),
-#                                          (3232252931, 8000, 1002)]), 1, 1, 1]]}
+    # sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
+    #                                      (3232252930, 8000, 1001),
+    #                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
     config_server.send_hb()
     conf_recv_thread = threading.Thread(target=config_server.conf_read,
@@ -297,7 +297,8 @@ if __name__ == '__main__':
         logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
         p = Process(target=tcp_server.run, args=params)
         p.start()
-    
+
+
 
     
             

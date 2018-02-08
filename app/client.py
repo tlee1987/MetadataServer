@@ -133,34 +133,6 @@ class Client:
                 sel.unregister(conn)
                 conn.close()
     
-#     def select_addr(self, sgw_info, lock):
-#         """
-#         @:选择一个存储网关地址
-#         @:保存sgw信息的数据结构:
-#         {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
-#         group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
-#         ...}
-#         addr = [ip, port, sgw_id]
-#         """
-#         logger.info('选择一个存储网关地址')
-#         lock.acquire()
-#         try:
-#             values = sgw_info.values()
-#             sgw_disk_free = []
-#             sgw_disk_temp = {}    
-#             for item in values:
-#                 sgw_disk_free.append(item[0])
-#                 sgw_disk_temp[item[0]] = item[1]
-#             sgw_disk_free.sort(reverse=True)        # 按降序排列后，选取可用磁盘容量最大的值
-#             max_disk_free = sgw_disk_free[0]
-#             g = (addr for addr in cycle(sgw_disk_temp[max_disk_free][0]))
-#             region_id = sgw_disk_temp[max_disk_free][1]
-#             system_id = sgw_disk_temp[max_disk_free][2]
-#             group_id = sgw_disk_temp[max_disk_free][3]
-#             return g, region_id, system_id, group_id
-#         finally:
-#             lock.release()
-            
     def select_addr(self, sgw_info, lock):
         """
         @:选择一个存储网关地址
@@ -238,8 +210,7 @@ class Client:
         else:
             ack_code = Constant.ACK_CLIENT_UPLOAD_ROUTE
             
-        g, region_id, system_id, group_id = self.select_addr(sgw_info, lock)
-        addr = next(g)
+        addr, region_id, system_id, group_id = self.select_addr(sgw_info, lock)
         sgw_ip = proxy_ip = addr[0]
         sgw_port = proxy_port = addr[1]
         sgw_id = proxy_id = addr[2]
@@ -445,8 +416,7 @@ class Client:
         offset = head_unpack[12]
         count = head_unpack[13]
 
-        g = self.select_addr(sgw_info, lock)[0]
-        addr = next(g)
+        addr = self.select_addr(sgw_info, lock)[0]
         sgw_ip = addr[0]
         sgw_port = addr[1]
         sgw_id = addr[2]
@@ -665,8 +635,7 @@ class Client:
         order_by = body_unpack.get('order_by')
         desc_key = body_unpack.get('desc')
          
-        g = self.select_addr(sgw_info, lock)[0]
-        addr = next(g)
+        addr = self.select_addr(sgw_info, lock)[0]
         sgw_ip = proxy_ip = addr[0]
         sgw_port = proxy_port = addr[1]
         sgw_id = proxy_id = addr[2]
@@ -1017,8 +986,7 @@ class Client:
         order_by = body_unpack.get('order_by')
         desc_key = body_unpack.get('desc')
         
-        g = self.select_addr(sgw_info, lock)[0]
-        addr = next(g)
+        addr = self.select_addr(sgw_info, lock)[0]
         sgw_ip = proxy_ip = addr[0]
         sgw_port = proxy_port = addr[1]
         sgw_id = proxy_id = addr[2]
@@ -1085,8 +1053,7 @@ class Client:
         offset = head_unpack[12]
         count = head_unpack[13]
          
-        g = self.select_addr(sgw_info, lock)[0]
-        addr = next(g)
+        addr = self.select_addr(sgw_info, lock)[0]
         sgw_ip = proxy_ip = addr[0]
         sgw_port = proxy_port = addr[1]
         sgw_id = proxy_id = addr[2]
@@ -1174,8 +1141,7 @@ class Client:
         offset = head_unpack[12]
         count = head_unpack[13]
         
-        g = self.select_addr(sgw_info, lock)[0]
-        addr = next(g)
+        addr = self.select_addr(sgw_info, lock)[0]
         sgw_ip = proxy_ip = addr[0]
         sgw_port = proxy_port = addr[1]
         sgw_id = proxy_id = addr[2]
@@ -1294,8 +1260,7 @@ class Client:
 #         head_pack = struct.pack(fmt_head, *header)
 #         conn.sendall(head_pack)
 #         
-#         g = self.select_addr(sgw_info, lock)[0]
-#         addr = next(g)
+#         addr = self.select_addr(sgw_info, lock)[0]
 #         sgw_ip = proxy_ip = addr[0]
 #         sgw_port = proxy_port = addr[1]
 #         sgw_id = proxy_id = addr[2]
@@ -1447,8 +1412,7 @@ class Client:
         file_name = remote_body_unpack[13]
         metadata_len = remote_body_unpack[14]
         
-        g, region_id = self.select_addr(sgw_info, lock)[0: 2]
-        addr = next(g)
+        addr, region_id = self.select_addr(sgw_info, lock)[0: 2]
         proxy_ip = addr[0]
         proxy_port = addr[1]
         proxy_id = addr[2]
@@ -1553,8 +1517,7 @@ class Client:
             ret = filt_ret.delete()
         if ret:
             flag = True
-            g, region_id = self.select_addr(sgw_info, lock)[0: 2]
-            addr = next(g)
+            addr, region_id = self.select_addr(sgw_info, lock)[0: 2]
             sgw_ip = proxy_ip = addr[0]
             sgw_port = proxy_port = addr[1]
             sgw_id = proxy_id = addr[2]
