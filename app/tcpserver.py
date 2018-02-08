@@ -38,43 +38,51 @@ class TcpServer:
             conn.setblocking(False)
             sel.register(conn, selectors.EVENT_READ, self.read)
                         
-    def recvall(self, conn, length):
+    def recvall(self, conn, sel, length,):
         """
         """
         blocks = []
         while length:
             try:
                 block = conn.recv(length)
-            except OSError:
-                continue
+            except socket.error:
+                sel.unregister(conn)
+                conn.close()
+                break
             else:
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
     
-    def get_msg(self, conn):
+    def get_msg(self, conn, sel):
         """
         """
-        header = self.recvall(conn, Constant.HEAD_LENGTH)
+        head_unpack = None
+        body = None
+        header = self.recvall(conn, sel, Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
-        head_unpack = struct.unpack(fmt_head, header)
-        total_size = head_unpack[0]
-        body_size = total_size - Constant.HEAD_LENGTH
-        body = self.recvall(conn, body_size)
+        try:
+            head_unpack = struct.unpack(fmt_head, header)
+        except struct.error:
+            pass
+        else :
+            total_size = head_unpack[0]
+            body_size = total_size - Constant.HEAD_LENGTH
+            body = self.recvall(conn, sel, body_size)
         return head_unpack, body
         
     def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info,
              sgw_id_list):
         """
         """
-        head_unpack, body = self.get_msg(conn)
+        head_unpack, body = self.get_msg(conn, sel)
         try:
-            logger.info("head_unpack：{}".format(head_unpack))
-            logger.info("body:{}".format(body))
+            logger.info("TcpServer收到的head_unpack：{}".format(head_unpack))
+            logger.info("TcpServer收到的body:{}".format(body))
             self.data_handler(head_unpack, body, conn, sel, sgw_info,
                               lock, conf_info, version_info, sgw_id_list)
         except:
-            logger.error('数据处理出现错误')
+            logger.error('TcpServer数据处理出现错误')
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
                      conf_info, version_info, sgw_id_list):
@@ -99,11 +107,13 @@ class TcpServer:
             else:
                 sgw_id = head_unpack[5]
                 storagegw = StorageGW(sgw_id, *body_unpack)
-#                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock)
-                t = threading.Thread(target=storagegw.handle_hb,
-                                     args=(head_unpack, conn, sel, sgw_info,
-                                           lock, sgw_id_list))
-                t.start()
+                storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock,
+                                    sgw_id_list)
+#                 t = threading.Thread(target=storagegw.handle_hb,
+#                                      args=(head_unpack, conn, sel, sgw_info,
+#                                            lock, sgw_id_list))
+#                 t.start()
+                logger.info('当前sgw的sgw_id列表为：{}'.format(sgw_id_list))
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
              
         elif command == Constant.CLIENT_HB:
@@ -112,11 +122,12 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-#             client.handle_hb(head_unpack, body, conn, conf_info, version_info)
-            t = threading.Thread(target=client.handle_hb,
-                                 args=(head_unpack, body, conn, conf_info,
-                                       version_info))
-            t.start()
+            client.handle_hb(head_unpack, body, conn, sel, conf_info,
+                             version_info)
+#             t = threading.Thread(target=client.handle_hb,
+#                                  args=(head_unpack, body, conn, sel, conf_info,
+#                                        version_info))
+#             t.start()
             
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
             """
@@ -126,7 +137,8 @@ class TcpServer:
             logger.info(sgw_info)
             client = Client()
             try:
-                client.handle_upload(head_unpack, body, conn, sgw_info, lock)
+                client.handle_upload(head_unpack, body, conn, sel, sgw_info,
+                                     lock)
             except:
                 logger.error('sgw还没有发心跳消息注册，无存储网关信息')
             
@@ -142,7 +154,7 @@ class TcpServer:
             """
             logger.info('收到Client查询记录数量的请求')
             client = Client()
-            client.handle_query_num(head_unpack, body, conn, conf_info)
+            client.handle_query_num(head_unpack, body, conn, sel, conf_info)
             
         elif command == Constant.CLIENT_QUERY_DATA:
             """
@@ -150,8 +162,8 @@ class TcpServer:
             """
             logger.info('收到Client查询数据的请求')
             client = Client()
-            client.handle_query_data1(head_unpack, body, conn, sgw_info, lock,
-                                     conf_info)
+            client.handle_query_data1(head_unpack, body, conn, sgw_info,
+                                      lock, conf_info)
                     
         elif command == Constant.REMOTE_QUERY_NUM:
             """
@@ -208,9 +220,9 @@ class TcpServer:
         
     def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
             sgw_id_list):
-#         conf_recv_thread = threading.Thread(target=config_server.data_handler,
-#                                             args=(conf_info,))
-#         conf_recv_thread.start()
+        conf_recv_thread = threading.Thread(target=config_server.conf_read,
+                                            args=(conf_info,))
+        conf_recv_thread.start()
         sel.register(listener, selectors.EVENT_READ, self.accept)
         while True:
             events = sel.select()
@@ -261,20 +273,19 @@ if __name__ == '__main__':
     sgw_info = m.dict()
     sgw_id_list = m.list()
 #     sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
-#                                      (3232252930, 8000, 1001),
-#                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
+#                                          (3232252930, 8000, 1001),
+#                                          (3232252931, 8000, 1002)]), 1, 1, 1]]}
     conf_info = m.dict()
-#     config_server.send_hb()
-#     conf_recv_thread = threading.Thread(target=config_server.data_handler,
-#                                         args=(conf_info,))
-#     conf_recv_thread.start()
+    config_server.send_hb()
+    conf_recv_thread = threading.Thread(target=config_server.conf_read,
+                                        args=(conf_info,))
+    conf_recv_thread.start()
     
     status_server = StatusServer()
     status_server.send_hb()
     
     listener = _generate_srv_sock()
     workers = _get_workers()
-#     workers = 2
     sel = selectors.DefaultSelector()
     params = (listener, sel, sgw_info, lock, conf_info, version_info,
               sgw_id_list)
@@ -282,8 +293,6 @@ if __name__ == '__main__':
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')
     logger.info('Listening at:{}'.format(listener.getsockname()))
-#     tcp_server.run(listener, sel, sgw_info, lock, conf_info, version_info,
-#                    sgw_id_list)
     for i in range(workers):
         logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
         p = Process(target=tcp_server.run, args=params)

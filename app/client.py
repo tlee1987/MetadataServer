@@ -81,7 +81,7 @@ class Client:
         else:
             logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
         
-    def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
+    def handle_hb(self, head_unpack, body, conn, sel, conf_info, version_info):
         """
         @:处理Client心跳消息
         @:心跳消息内容字段：
@@ -127,7 +127,11 @@ class Client:
             
             response = self._generate_resp_hb(head_unpack, config_version,
                                               client_version)
-            conn.sendall(response)
+            try:
+                conn.sendall(response)
+            except socket.error:
+                sel.unregister(conn)
+                conn.close()
     
 #     def select_addr(self, sgw_info, lock):
 #         """
@@ -187,7 +191,7 @@ class Client:
         finally:
             lock.release()
         
-    def handle_upload(self, head_unpack, body, conn, sgw_info, lock):
+    def handle_upload(self, head_unpack, body, conn, sel, sgw_info, lock):
         """
         @:处理Client转存路径请求
         (operation, region_id, site_id, app_id, timestamp, sgw_port,
@@ -258,7 +262,11 @@ class Client:
         logger.info("处理Client转存请求，回复的body为：{}".format(body_resp))
         logger.info("处理Client转存请求，回复的metadata为：{}".format(metadata_unpack))
         data = head_pack + body_pack + metadata_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            sel.unregister(conn)
+            conn.close()
         
 #         metadata_internal = (site_id, app_id, file_name, region_id, system_id,
 #                              group_id, user_id, customer_id, timestamp)
@@ -303,7 +311,7 @@ class Client:
             
             metadata_info.pop(file_md5)
             
-    def handle_query_num(self, head_unpack, body, conn, conf_info):
+    def handle_query_num(self, head_unpack, body, conn, sel, conf_info):
         """
         query_json用来描述用户的查询条件，格式为：
         {"site_id": [id1, id2, ...],
@@ -374,7 +382,11 @@ class Client:
         head_pack = struct.pack(fmt_head, *header)
         logger.info("处理Client查询记录数量的请求，回复的head为：{}".format(header))
         data = head_pack + body
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            sel.unregister(conn)
+            conn.close()
         
     def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
                           conf_info):
@@ -726,7 +738,10 @@ class Client:
                   total, offset, count]
         head_pack = struct.pack(fmt_head, *header)
         data = head_pack + body
-        sock.sendall(data)
+        try:
+            sock.sendall(data)
+        except socket.error:
+            sock.close()
         
     def _generate_meta_sock(self, addr):
         """
@@ -736,9 +751,9 @@ class Client:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect(addr)
-        except OSError:
+        except socket.error:
             logger.error('该请求的地址{}无效，与RemoteMetadataServer连接失败'.format(addr))
-#             sock.close()
+            sock.close()
         return sock
         
     def _generate_query_num(self, head_unpack, body, meta_src_id):
@@ -779,7 +794,10 @@ class Client:
         """
         logger.info("执行_send_query_num，向RemoteMetadataServer发送查询消息")
         data = self._generate_query_num(head_unpack, body, meta_src_id)
-        sock.sendall(data)
+        try:
+            sock.sendall(data)
+        except socket.error:
+            sock.close()
         
     def _generate_query_data(self, headpack, body, meta_src_id):
         """
@@ -832,7 +850,10 @@ class Client:
                   total, offset, count]
         head_pack = struct.pack(fmt_head, *header)
         data = head_pack + body
-        sock.sendall(data)
+        try:
+            sock.sendall(data)
+        except socket.error:
+            sock.close()
         
 #     def recv_remote_msg(self, sock):
 #         """
@@ -867,8 +888,9 @@ class Client:
         while length:
             try:
                 block = sock.recv(length)
-            except OSError:
-                continue
+            except socket.error:
+                sock.close()
+                break
             else:
                 length -= len(block)
                 blocks.append(block)
@@ -878,12 +900,18 @@ class Client:
         """
         @:解析RemoteMetadataServer发回的消息
         """
+        head_unpack = None
+        body = None
         header = self.recvall_remote(sock, Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
-        head_unpack = struct.unpack(fmt_head, header)
-        total_size = head_unpack[0]
-        body_size = total_size - Constant.HEAD_LENGTH
-        body = self.recvall_remote(sock, body_size)
+        try:
+            head_unpack = struct.unpack(fmt_head, header)
+        except struct.error:
+            pass
+        else:
+            total_size = head_unpack[0]
+            body_size = total_size - Constant.HEAD_LENGTH
+            body = self.recvall_remote(sock, body_size)
         return head_unpack, body
             
     def _parse_remote_query_num(self, sock):
@@ -1487,7 +1515,10 @@ class Client:
         """
         logger.info('执行_send_del_msg，向RemoteMetadataServer发送删除消息')
         data = self._generate_del_msg(head_unpack, body, meta_src_id)
-        sock.sendall(data)
+        try:
+            sock.sendall(data)
+        except socket.error:
+            sock.close()
         
     def handle_local_del(self, body_unpack, metadata_unpack, sgw_info, lock):
         """

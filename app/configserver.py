@@ -14,7 +14,7 @@ from config import Config, Constant
 
 
 class ConfigServer:
-    
+
     def __init__(self):
         self.major = Constant.MAJOR_VERSION
         self.minor = Constant.MINOR_VERSION
@@ -22,9 +22,9 @@ class ConfigServer:
         self.dst_type = Constant.CONFIG_TYPE
         self.src_id = int(Config.src_id, 16)
         self.dst_id = int(Config.config_dst_id, 16)
-        
+
         self.sock = self._generate_conf_sock()
-        
+
     def _generate_conf_sock(self):
         HOST = Config.config_server_ip
         try:
@@ -34,16 +34,16 @@ class ConfigServer:
                          '请检查配置文件。')
             sys.exit()
         ADDR = (HOST, PORT)
-        
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect(ADDR)
             logger.info('连接至ConfigServer的地址为{}'.format(ADDR))
-        except OSError:
+        except socket.error:
             logger.error('该请求的地址{}无效，与ConfigServer连接失败，退出程序'.format(ADDR))
 #             sys.exit()
         return sock
-    
+
     def get_info(self):
         """
         @:生成MetadataServer的状态信息
@@ -55,7 +55,7 @@ class ConfigServer:
         mem_info = list(psutil.virtual_memory())[-2:]
         disk_info = list(psutil.disk_usage('/'))[1:3]
         netio_info = list(psutil.net_io_counters())[:2]
-        
+
         region_id = Config.region_id
         system_id = Config.system_id
         meta_version = Constant.METADATA_VERSION
@@ -66,7 +66,7 @@ class ConfigServer:
         netio_input = netio_info[1]
         netio_output = netio_info[0]
         timestamp = int(time.time())
-        
+
         infoDict = {}
         infoDict['region_id'] = region_id
         infoDict['system_id'] = system_id
@@ -79,8 +79,8 @@ class ConfigServer:
         infoDict['netio_input'] = netio_input
         infoDict['netio_output'] = netio_output
         infoDict['timestamp'] = timestamp
-        return infoDict 
-    
+        return infoDict
+
     def generate_hb(self):
         """
         @:生成发送给ConfigServer的心跳消息
@@ -89,7 +89,7 @@ class ConfigServer:
         d = self.get_info()
         body_json = json.dumps(d)
         body_pack = body_json.encode('utf-8')
-        
+
         total = count = len(body_pack)
         total_size = total + Constant.HEAD_LENGTH
         command = Constant.CONFIG_HB
@@ -101,24 +101,28 @@ class ConfigServer:
         logger.info("发送给ConfigServer的心跳header:{}".format(header))
         data = head_pack + body_pack
         return data
-    
+
     def send_hb_timer(self):
         """
         @:构造发心跳消息的定时器
         """
         data = self.generate_hb()
-        self.sock.sendall(data)
-        global timer
-        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
-        timer.start()
-     
+        try:
+            self.sock.sendall(data)
+        except socket.error:
+            self.sock.close()
+        else:
+            global timer
+            timer = threading.Timer(Constant.TIME, self.send_hb_timer)
+            timer.start()
+
     def send_hb(self):
         """
         @:定时发心跳消息
-        """    
-        timer = threading.Timer(0, self.send_hb_timer)
+        """
+        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
-        
+
     def generate_msg(self, site_id):
         """
         @:生成发给ConfigServer查询client相关信息的消息
@@ -130,7 +134,7 @@ class ConfigServer:
         body['site_id'] = site_id
         body_json = json.dumps(body)
         body_pack = body_json.encode('utf-8')
-        
+
         total = count = len(body_pack)
         total_size = Constant.HEAD_LENGTH + total
         command = Constant.CONFIG_QUERY
@@ -144,15 +148,18 @@ class ConfigServer:
         logger.info("向ConfigServer查询的消息的body:{}".format(body_json))
         data = head_pack + body_pack
         return data
-    
+
     def send_msg(self, site_id):
         """
         @:给ConfigServer发查询client相关信息的消息
         """
         logger.info('执行send_msg， 向ConfigServer发送查询 ')
         req = self.generate_msg(site_id)
-        self.sock.sendall(req)
-        
+        try:
+            self.sock.sendall(req)
+        except socket.error:
+            self.sock.close()
+
 #     def recv_msg(self):
 #         """
 #         :解析ConfigServer回复的消息
@@ -186,7 +193,7 @@ class ConfigServer:
 # #                 else:
 # #                     data = data[total_size:]
 #                 return headpack, body
-    
+
     def recvall(self, length):
         """
         @:接收ConfigServer回复的消息
@@ -195,26 +202,44 @@ class ConfigServer:
         while length:
             try:
                 block = self.sock.recv(length)
-            except OSError:
-                continue
+            except socket.error:
+                self.sock.close()
+                break
             else:
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
-    
+
     def get_msg(self):
         """
         @:解析ConfigServer回复的消息
         """
+        head_unpack = None
+        body = None
         header = self.recvall(Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
-        head_unpack = struct.unpack(fmt_head, header)
-        total_size = head_unpack[0]
-        body_size = total_size - Constant.HEAD_LENGTH
-        body = self.recvall(body_size)
+        try:
+            head_unpack = struct.unpack(fmt_head, header)
+        except struct.error:
+            pass
+        else:
+            total_size = head_unpack[0]
+            body_size = total_size - Constant.HEAD_LENGTH
+            body = self.recvall(body_size)
         return head_unpack, body
-        
-    def data_handler(self, conf_info):
+
+    def conf_read(self, conf_info):
+        logger.info('执行conf_read,接收ConfigServer返回的消息')
+        while True:
+            head_unpack, body = self.get_msg()
+            try:
+                self.data_handler(head_unpack, body, conf_info)
+            except:
+                logger.info('处理ConfigServer消息错误')
+                self.sock.close()
+                break
+
+    def data_handler(self, head_unpack, body, conf_info):
         """
         body_unpack:
         {str(site_id): ["region_id1", "region_id2", "region_id3"...],# 历史的region_id
@@ -228,35 +253,32 @@ class ConfigServer:
         "file_name": file_name,
         "file_md5": file_md5}
         """
-        logger.info('执行data_handler,接收ConfigServer返回的消息')
-        while True:
-            head_unpack, body = self.get_msg()
-            trans_id = head_unpack[7]
-            site_id = trans_id
-            key = str(site_id)
-            command = head_unpack[9]
-            
-            if command == Constant.CONFIG_HB_RESP:
-                logger.info('收到ConfigServer心跳回复消息')
-                logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
-                
-            elif command == Constant.CONFIG_QUERY_RESP:
-                """
-                @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
-                """
-                logger.info('收到ConfigServer回复的查询消息')
-                body_unpack = json.loads(body.decode('utf-8'))
-                conf_info[key] = body_unpack
-                
-            elif command == Constant.CONFIG_INFO:
-                logger.info('配置有变更，ConfigServer主动下发通知')
-                body_unpack = json.loads(body.decode('utf-8'))
-                conf_info[key] = body_unpack
-                
-#             else:
-#                 logger.info('接受ConfigServer消息有误')
-#                 break
-            
+        logger.info('执行data_handler,处理ConfigServer返回的消息')
+        trans_id = head_unpack[7]
+        site_id = trans_id
+        key = str(site_id)
+        command = head_unpack[9]
+
+        if command == Constant.CONFIG_HB_RESP:
+            logger.info('收到ConfigServer心跳回复消息')
+            logger.info("ConfigServer回复的心跳消息头部：{}".format(head_unpack))
+
+        elif command == Constant.CONFIG_QUERY_RESP:
+            """
+            @:以str(site_id)为键,收到的查询消息为值放到字典conf_info中。
+            """
+            logger.info('收到ConfigServer回复的查询消息')
+            body_unpack = json.loads(body.decode('utf-8'))
+            conf_info[key] = body_unpack
+
+        elif command == Constant.CONFIG_INFO:
+            logger.info('配置有变更，ConfigServer主动下发通知')
+            body_unpack = json.loads(body.decode('utf-8'))
+            conf_info[key] = body_unpack
+
+        else:
+            logger.info('接受ConfigServer消息有误')
+
 
 config_server = ConfigServer()
 
@@ -279,13 +301,13 @@ def query(conf_info, site_id):
 if __name__ == '__main__':
     conf_info = {}
     config_server.send_hb()
-    conf_recv_thread = threading.Thread(target=config_server.data_handler,
+    conf_recv_thread = threading.Thread(target=config_server.conf_read,
                                         args=(conf_info,))
     conf_recv_thread.start()
 #     conf_recv_p = Process(target=config_server.data_handler,
 #                           args=(conf_info,))
 #     conf_recv_p.start()
-    site_id = 1
+    site_id = 2
 #     p = Process(target=query, args=(conf_info, site_id))
 #     p.start()
     for i in range(Constant.try_times):

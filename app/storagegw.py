@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
 import struct
+import  socket
 from collections import deque
 # from socket import inet_aton
 # from binascii import hexlify
@@ -91,14 +92,16 @@ class StorageGW:
         if (self.region_id == Config.region_id and
                                 self.system_id == Config.system_id):
             response = self._generate_resp_hb(head_unpack)
-            conn.sendall(response)
+            try:
+                conn.sendall(response)
+            except socket.error:
+                sel.unregister(conn)
+                conn.close()
             self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list)
             
 #             sql_queue.put_nowait(self.sgw_status)
             with session_scope() as session:
                 session.add(self.sgw_status)
-#             session = session_scope()
-#             session.add(self.sgw_status)
         else:
             sel.unregister(conn)
             conn.close()
