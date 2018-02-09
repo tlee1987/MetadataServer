@@ -25,7 +25,7 @@ class TcpServer:
         pass
     
     def accept(self, sock, mask, sel, sgw_info, lock, conf_info, version_info,
-               sgw_id_list):
+               sgw_id_list, addr_list):
         """
         @:接受连接请求
         """
@@ -72,7 +72,7 @@ class TcpServer:
         return head_unpack, body
         
     def read(self, conn, mask, sel, sgw_info, lock, conf_info, version_info,
-             sgw_id_list):
+             sgw_id_list, addr_list):
         """
         """
         head_unpack, body = self.get_msg(conn, sel)
@@ -80,12 +80,13 @@ class TcpServer:
             logger.info("TcpServer收到的head_unpack：{}".format(head_unpack))
             logger.info("TcpServer收到的body:{}".format(body))
             self.data_handler(head_unpack, body, conn, sel, sgw_info,
-                              lock, conf_info, version_info, sgw_id_list)
+                              lock, conf_info, version_info, sgw_id_list,
+                              addr_list)
         except:
             logger.error('TcpServer数据处理出现错误')
                         
     def data_handler(self, head_unpack, body, conn, sel, sgw_info, lock,
-                     conf_info, version_info, sgw_id_list):
+                     conf_info, version_info, sgw_id_list, addr_list):
         """
         @:对收到的数据进行业务处理
         (total_size, major, minor, src_type, dst_type, src_id, dst_id, trans_id,
@@ -107,12 +108,12 @@ class TcpServer:
             else:
                 sgw_id = head_unpack[5]
                 storagegw = StorageGW(sgw_id, *body_unpack)
-                storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock,
-                                    sgw_id_list)
-#                 t = threading.Thread(target=storagegw.handle_hb,
-#                                      args=(head_unpack, conn, sel, sgw_info,
-#                                            lock, sgw_id_list))
-#                 t.start()
+#                 storagegw.handle_hb(head_unpack, conn, sel, sgw_info, lock,
+#                                     sgw_id_list, addr_list)
+                t = threading.Thread(target=storagegw.handle_hb,
+                                     args=(head_unpack, conn, sel, sgw_info,
+                                           lock, sgw_id_list, addr_list))
+                t.start()
                 logger.info('当前sgw的sgw_id列表为：{}'.format(sgw_id_list))
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
              
@@ -122,12 +123,12 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-            client.handle_hb(head_unpack, body, conn, sel, conf_info,
-                             version_info)
-#             t = threading.Thread(target=client.handle_hb,
-#                                  args=(head_unpack, body, conn, sel, conf_info,
-#                                        version_info))
-#             t.start()
+#             client.handle_hb(head_unpack, body, conn, sel, conf_info,
+#                              version_info)
+            t = threading.Thread(target=client.handle_hb,
+                                 args=(head_unpack, body, conn, sel, conf_info,
+                                       version_info))
+            t.start()
             
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
             """
@@ -219,7 +220,7 @@ class TcpServer:
             logger.error('解析到未定义的命令字')
         
     def run(self, listener, sel, sgw_info, lock, conf_info, version_info,
-            sgw_id_list):
+            sgw_id_list, addr_list):
         conf_recv_thread = threading.Thread(target=config_server.conf_read,
                                             args=(conf_info,))
         conf_recv_thread.start()
@@ -229,7 +230,7 @@ class TcpServer:
             for key, mask in events:
                 callback = key.data
                 callback(key.fileobj, mask, sel, sgw_info, lock, conf_info,
-                         version_info, sgw_id_list)
+                         version_info, sgw_id_list, addr_list)
 
 
 def _generate_srv_sock():
@@ -272,6 +273,7 @@ if __name__ == '__main__':
     version_info = m.dict()
     sgw_info = m.dict()
     sgw_id_list = m.list()
+    addr_list = m.list()
     # sgw_info = {2: [10240000000, [deque([(3232252929, 8000, 1000),
     #                                      (3232252930, 8000, 1001),
     #                                      (3232252931, 8000, 1002)]), 1, 1, 1]]}
@@ -288,7 +290,7 @@ if __name__ == '__main__':
     workers = _get_workers()
     sel = selectors.DefaultSelector()
     params = (listener, sel, sgw_info, lock, conf_info, version_info,
-              sgw_id_list)
+              sgw_id_list, addr_list)
     
     tcp_server = TcpServer()
     logger.info('Starting TCP services...')

@@ -11,7 +11,6 @@ from config import Config, Constant
 from app.models import SgwStaus, SgwStatic
 from app.models import session_scope
 
-addr_info = set()
 
 class StorageGW:
     """
@@ -84,7 +83,8 @@ class StorageGW:
         head_pack = struct.pack(fmt_head, *header)
         return head_pack
     
-    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sgw_id_list):
+    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sgw_id_list,
+                  addr_list):
         """
         @:处理sgw心跳消息
         """
@@ -97,9 +97,9 @@ class StorageGW:
             except socket.error:
                 sel.unregister(conn)
                 conn.close()
-            self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list)
+            self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list,
+                              addr_list)
             
-#             sql_queue.put_nowait(self.sgw_status)
             with session_scope() as session:
                 session.add(self.sgw_status)
         else:
@@ -108,7 +108,8 @@ class StorageGW:
             logger.error('sgw心跳消息中的region_id或者system_id与Metadata Server'
                          '本地配置的region_id和system_id不一致')
             
-    def register_sgw(self, head_unpack, conn, sgw_info, lock, sgw_id_list):
+    def register_sgw(self, head_unpack, conn, sgw_info, lock, sgw_id_list,
+                     addr_list):
         """
         @:网关注册
         {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
@@ -125,10 +126,13 @@ class StorageGW:
 #         ip = int(ip_hex.decode('utf-8'), 16)
 #         addr_converted = (ip, addr[1], sgw_id)
         addr_converted = (self.listen_ip, self.listen_port, sgw_id)
-        addr_info.add(addr_converted)
         
         lock.acquire()
         try:
+            if addr_converted not in addr_list:
+                addr_list.append(addr_converted)
+                logger.info('执行register_sgw后，'
+                            'addr_list:{}'.format(addr_list))
             if sgw_id not in sgw_id_list:
                 sgw_id_list.append(sgw_id)
                 logger.info('执行register_sgw后，'
@@ -141,12 +145,16 @@ class StorageGW:
                     session.add(sgw_static)
                     
             if self.group_id not in sgw_info:
-                sgw_info[self.group_id] = [self.disk_free, [deque(addr_info),
+                sgw_info[self.group_id] = [self.disk_free, [deque(addr_list),
                                            Config.region_id, Config.system_id,
                                            self.group_id]]
             elif (self.group_id in sgw_info and
                             self.disk_free < sgw_info[self.group_id][0]):
                 sgw_info[self.group_id][0] = self.disk_free
+                sgw_info[self.group_id][1][0] = deque(addr_list)
+            else:
+                sgw_info[self.group_id][1][0] = deque(addr_list)
+                
         finally:
             lock.release()
             
