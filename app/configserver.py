@@ -1,18 +1,18 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
+import json
 import socket
 import struct
-import json
 import sys
-import time
 import threading
+import time
 import psutil
-# from multiprocessing import Process
 
-from log import logger
 from config import Config, Constant
+from log import logger
 
 
+# from multiprocessing import Process
 class ConfigServer:
 
     def __init__(self):
@@ -34,14 +34,18 @@ class ConfigServer:
                          '请检查配置文件。')
             sys.exit()
         ADDR = (HOST, PORT)
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except socket.error as e:
+            logger.error('Created config socket Failed:{}'.format(e))
+            
         try:
             sock.connect(ADDR)
             logger.info('连接至ConfigServer的地址为{}'.format(ADDR))
         except socket.error:
-            logger.error('该请求的地址{}无效，与ConfigServer连接失败，退出程序'.format(ADDR))
-#             sys.exit()
+            logger.error('该请求的地址{}无效，与ConfigServer连接失败'.format(ADDR))
+            sock.close()
         return sock
 
     def get_info(self):
@@ -115,6 +119,10 @@ class ConfigServer:
             global timer
             timer = threading.Timer(Constant.TIME, self.send_hb_timer)
             timer.start()
+            flag = timer.is_alive()
+            logger.info('config timer is alive:{}'.format(flag))
+            logger.info("config timer's name is:{}".format(timer.name))
+            logger.info("config timer's ident is:{}".format(timer.ident))
 
     def send_hb(self):
         """
@@ -122,6 +130,8 @@ class ConfigServer:
         """
         timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
+        logger.info("!config timer's name is:{}".format(timer.name))
+        logger.info("!config timer's ident is:{}".format(timer.ident))
 
     def generate_msg(self, site_id):
         """
@@ -214,8 +224,6 @@ class ConfigServer:
         """
         @:解析ConfigServer回复的消息
         """
-        head_unpack = None
-        body = None
         header = self.recvall(Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
         try:
@@ -226,18 +234,22 @@ class ConfigServer:
             total_size = head_unpack[0]
             body_size = total_size - Constant.HEAD_LENGTH
             body = self.recvall(body_size)
-        return head_unpack, body
+            return head_unpack, body
 
     def conf_read(self, conf_info):
         logger.info('执行conf_read,接收ConfigServer返回的消息')
         while True:
-            head_unpack, body = self.get_msg()
             try:
-                self.data_handler(head_unpack, body, conf_info)
+                head_unpack, body = self.get_msg()
             except:
-                logger.info('处理ConfigServer消息错误')
-                self.sock.close()
-                break
+                pass
+            else:
+                try:
+                    self.data_handler(head_unpack, body, conf_info)
+                except:
+                    logger.info('处理ConfigServer消息错误')
+                    self.sock.close()
+                    break
 
     def data_handler(self, head_unpack, body, conf_info):
         """

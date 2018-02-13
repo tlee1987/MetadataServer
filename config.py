@@ -12,15 +12,11 @@ conf.read(meta_path)
 class Config:
     """
     mysql_db1:mysql+pymysql://root:anyun100@localhost:3306/test
-    mysql_db2:mysql+pymysql://root:123456@192.168.68.43:3306/test
-    mysql_db3:mysql+pymysql://root:123456@192.168.68.34:3306/test
     mysql_db4:mysql+pymysql://metadata:anyun100@192.168.68.43:3306/metadata
     mysql_db5:mysql+pymysql://metadata:anyun100@192.168.68.34:3306/metadata
     mysql_db6:mysql+pymysql://metadata:anyun100@192.168.16.4:3306/metadata
     """
     db_conn_str = conf.get('mysql_db1', 'conn_str')
-#     db_conn_str = conf.get('mysql_db2', 'conn_str')
-#     db_conn_str = conf.get('mysql_db3', 'conn_str')
 #     db_conn_str = conf.get('mysql_db4', 'conn_str')
 #     db_conn_str = conf.get('mysql_db5', 'conn_str')
 #     db_conn_str = conf.get('mysql_db6', 'conn_str')
@@ -54,7 +50,7 @@ class Constant:
     
     CPU_NUMS = os.cpu_count()
     DEFAULT_WORKERS = int(3/4*CPU_NUMS)
-    BUFSIZE = 2048
+    BUFSIZE = 4096
     METADATA_VERSION = 1
 #     TIME = 5.0
     TIME = 10.0
@@ -90,7 +86,8 @@ class Constant:
     ACK_CLIENT_UPGRADE = 200
     ACK_CLIENT_DEL_SUCCESS = 200
     ACK_CLIENT_DEL_FAILED = 404
-    ACK_CLIENT_HB = 200
+    ACK_CLIENT_HB_SUCCESS = 200
+    ACK_CLIENT_HB_FAILED = 404
     
     # sgw与metadata server通信命令字
     SGW_HB = int(0x00010001)

@@ -35,12 +35,16 @@ class StatusServer:
                         '请检查配置文件。')
             sys.exit()
         ADDR = (HOST, PORT)
-         
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+        try:    
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except socket.error as e:
+            logger.error('Created status socket Failed:{}'.format(e))
+            
         try:
             sock.connect(ADDR)
             logger.info('连接至StatusServer的地址为{}'.format(ADDR))
-        except OSError:
+        except socket.error:
             logger.error('该请求的地址{}无效，与Stats Server连接失败。'.format(ADDR))
             sys.exit()
         return sock
@@ -122,6 +126,10 @@ class StatusServer:
         global timer
         timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
+        flag = timer.is_alive()
+        logger.info('status timer is alive:{}'.format(flag))
+        logger.info("status timer's name is:{}".format(timer.name))
+        logger.info("status timer's ident is:{}".format(timer.ident))
      
     def send_hb(self):
         """
@@ -129,6 +137,8 @@ class StatusServer:
         """       
         timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
+        logger.info("!status timer's name is:{}".format(timer.name))
+        logger.info("!status timer's ident is:{}".format(timer.ident))
 
 
 if __name__ == '__main__':

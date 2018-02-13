@@ -1,17 +1,17 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
-import struct
 import json
-import time
-import socket
-# from itertools import cycle
 from operator import itemgetter
+import socket
+import struct
+import time
+
 from sqlalchemy import and_, desc, asc
 
-from log import logger
-from config import Config, Constant
 from app.configserver import config_server
 from app.models import ClientStatus, MetadataInfo, session_scope
+from config import Config, Constant
+from log import logger
 
 
 class Client:
@@ -21,43 +21,40 @@ class Client:
         self.minor = Constant.MINOR_VERSION
         self.src_type = Constant.METADATA_TYPE
         self.dst_type = Constant.CLIENT_TYPE
-        
-    def _generate_resp_hb(self, head_unpack, config_version, client_version):
+
+    def _generate_resp_hb(self, head_unpack, body_version, ack_code):
         """
         @:生成client心跳回复消息
         @:回复的消息体json格式：
         {"config_version": config_version,
         "client_version": client_version}
         """
-#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
-#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        #         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+        #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
         client_src_id = head_unpack[5]
         trans_id = head_unpack[7]
         sequence = head_unpack[8]
         offset = head_unpack[12]
-        
-        body = {}
-        body['config_version'] = config_version
-        body['client_version'] = client_version
-        body_json = json.dumps(body)
+
+        body_json = json.dumps(body_version)
         body_pack = body_json.encode('utf-8')
-        
+
         total = count = len(body_pack)
         total_size = Constant.HEAD_LENGTH + total
         src_id = int(Config.src_id, 16)
         dst_id = client_src_id
         command = Constant.CLIENT_HB_RESP
-        ack_code = Constant.ACK_CLIENT_HB
-        
+
         # 生成头部
         fmt_head = Constant.FMT_COMMON_HEAD
         header = [total_size, self.major, self.minor, self.src_type,
-                  self.dst_type, src_id, dst_id, trans_id, sequence, command,
+                  self.dst_type, src_id, dst_id, trans_id, sequence,
+                  command,
                   ack_code, total, offset, count]
         logger.info("回复Client心跳消息的head：{}".format(header))
         logger.info("回复Client心跳消息的body：{}".format(body_pack))
-        headPack = struct.pack(fmt_head, *header)
-        data = headPack + body_pack
+        head_pack = struct.pack(fmt_head, *header)
+        data = head_pack + body_pack
         return data
     
     def get_conf(self, site_id, conf_info):
@@ -76,12 +73,12 @@ class Client:
                 conf_info.pop(key)
                 return body_unpack
             else:
-                logger.info('延时1秒发送查询请求')
+                logger.info('延时3秒发送查询请求')
                 time.sleep(3)
         else:
             logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
-        
-    def handle_hb(self, head_unpack, body, conn, sel, conf_info, version_info):
+
+    def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
         """
         @:处理Client心跳消息
         @:心跳消息内容字段：
@@ -98,7 +95,7 @@ class Client:
         else:
             (site_id, client_disk_total, client_disk_free, config_version,
              client_version, transactions_num, timestamp) = body_unpack
-          
+
             client_status = ClientStatus(site_id=site_id,
                                          client_disk_total=client_disk_total,
                                          client_disk_free=client_disk_free,
@@ -106,31 +103,37 @@ class Client:
                                          client_version=client_version,
                                          transactions_num=transactions_num,
                                          timestamp=timestamp)
-#             sql_queue.put_nowait(client_status)    
             with session_scope() as session:
                 session.add(client_status)
-            
+
             if str(site_id) not in version_info:
                 conf_body_unpack = self.get_conf(site_id, conf_info)
                 if conf_body_unpack:
                     config_version = conf_body_unpack.get('config_version')
                     client_version = conf_body_unpack.get('client_version')
-                    version_info[str(site_id)] = [config_version, client_version]
+                    body_version = {}
+                    body_version['config_version'] = config_version
+                    body_version['client_version'] = client_version
+                    version_info[str(site_id)] = body_version
+                    ack_code = Constant.ACK_CLIENT_HB_SUCCESS
                 else:
-                    logger.error('经过{}次查询未查询到配置信息'.format(Constant.try_times))
-                    config_version = 0
-                    client_version = 0
+                    logger.error('经过{}次查询未查询到配置'
+                                 '信息'.format(Constant.try_times))
+                    config_version = body_unpack[3]
+                    client_version = body_unpack[4]
+                    body_version = {}
+                    body_version['config_version'] = config_version
+                    body_version['client_version'] = client_version
+                    ack_code = Constant.ACK_CLIENT_HB_FAILED
             else:
-                version_list = version_info.get(str(site_id))
-                config_version = version_list[0]
-                client_version = version_list[1]
-            
-            response = self._generate_resp_hb(head_unpack, config_version,
-                                              client_version)
+                body_version = version_info.get(str(site_id))
+                ack_code = Constant.ACK_CLIENT_HB_SUCCESS
+
+            response = self._generate_resp_hb(head_unpack, body_version,
+                                              ack_code)
             try:
                 conn.sendall(response)
-            except socket.error:
-                sel.unregister(conn)
+            except socket.errno:
                 conn.close()
     
     def select_addr(self, sgw_info, lock):
@@ -163,7 +166,7 @@ class Client:
         finally:
             lock.release()
         
-    def handle_upload(self, head_unpack, body, conn, sel, sgw_info, lock):
+    def handle_upload(self, head_unpack, body, conn, sgw_info, lock):
         """
         @:处理Client转存路径请求
         (operation, region_id, site_id, app_id, timestamp, sgw_port,
@@ -236,7 +239,6 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
-            sel.unregister(conn)
             conn.close()
         
 #         metadata_internal = (site_id, app_id, file_name, region_id, system_id,
@@ -282,7 +284,7 @@ class Client:
             
             metadata_info.pop(file_md5)
             
-    def handle_query_num(self, head_unpack, body, conn, sel, conf_info):
+    def handle_query_num(self, head_unpack, body, conn, conf_info):
         """
         query_json用来描述用户的查询条件，格式为：
         {"site_id": [id1, id2, ...],
@@ -356,7 +358,6 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
-            sel.unregister(conn)
             conn.close()
         
     def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
@@ -469,7 +470,10 @@ class Client:
         head_pack = struct.pack(fmt_head, *header)
         logger.info("处理Client查询元数据信息的请求，回复的head为：{}".format(header))
         data = head_pack + body_query
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
             
     def handle_query_data1(self, head_unpack, body, conn, sgw_info, lock,
                           conf_info):
@@ -717,7 +721,11 @@ class Client:
         @:创建与RemoteMetadataServer通信的socket
         """
         logger.info("执行_generate_meta_sock，生成与RemoteMetadataServer通信的socket")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except socket.error as e:
+            logger.error('Created metadata socket Failed:{}'.format(e))
+            
         try:
             sock.connect(addr)
         except socket.error:
@@ -861,6 +869,8 @@ class Client:
                 sock.close()
                 break
             else:
+                if not block:
+                    break
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
@@ -869,8 +879,6 @@ class Client:
         """
         @:解析RemoteMetadataServer发回的消息
         """
-        head_unpack = None
-        body = None
         header = self.recvall_remote(sock, Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
         try:
@@ -881,28 +889,36 @@ class Client:
             total_size = head_unpack[0]
             body_size = total_size - Constant.HEAD_LENGTH
             body = self.recvall_remote(sock, body_size)
-        return head_unpack, body
+            return head_unpack, body
             
     def _parse_remote_query_num(self, sock):
         """
         @:解析RemoteMetadataServer返回查询到的记录条数
         """
-        headpack = self.recv_remote_msg(sock)[0]
-        total = headpack[11]
-        return total
+        try:
+            headpack = self.recv_remote_msg(sock)[0]
+        except:
+            pass
+        else:
+            total = headpack[11]
+            return total
     
     def _parse_remote_del_msg(self, remote_head_unpack):
         """
         @:解析RemoteMetadataServer发送的删除消息
         """
-        ack_code = remote_head_unpack[10]
-        if ack_code == Constant.ACK_REMOTE_DEL_SUCCESS:
-            flag = True
-        elif ack_code == Constant.ACK_REMOTE_DEL_FAILED:
-            flag = False
+        try:
+            ack_code = remote_head_unpack[10]
+        except:
+            pass
         else:
-            logger.error('RemoteMetadataServer使用了未定义的删除响应码')
-        return flag
+            if ack_code == Constant.ACK_REMOTE_DEL_SUCCESS:
+                flag = True
+            elif ack_code == Constant.ACK_REMOTE_DEL_FAILED:
+                flag = False
+            else:
+                logger.error('RemoteMetadataServer使用了未定义的删除响应码')
+            return flag
         
     def _get_local_query_num(self, body):
         """
@@ -966,7 +982,10 @@ class Client:
                   total, offset, count]
         head_pack = struct.pack(fmt_head, *header)
         data = head_pack + body
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
         
     def _get_local_query_data(self, head_unpack, body, sgw_info, lock):
         """
@@ -1124,7 +1143,10 @@ class Client:
         head_pack = struct.pack(fmt_head, *header)
         logger.info("处理Client查询元数据信息的请求，回复的head为：{}".format(header))
         data = head_pack + body_query
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
         
     def handle_remote_query_data(self, head_unpack, body, conn, sgw_info, lock):
         """
@@ -1218,96 +1240,11 @@ class Client:
         head_pack = struct.pack(fmt_head, *header)
         
         data = head_pack + body_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
                 
-#     def handle_remote_query_data(self, head_unpack, body, conn, sgw_info, lock):
-#         """
-#         :处理远端查询到的数据
-#         """
-# #         (total_size, major, minor, src_type, dst_type, meta_src_id, dst_id,
-# #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
-#         meta_src_id = head_unpack[5]
-#         trans_id = head_unpack[7]
-#         sequence = head_unpack[8]
-#         total = head_unpack[11]
-#         offset = head_unpack[12]
-#         count = head_unpack[13]
-#         
-#         body_unpack = json.loads(body.decode('utf-8'))
-#         user_id = body_unpack.get('user_id')[0]
-#         customer_id = body_unpack.get('customer_id')[0]
-#         
-#         metadata = {}
-#         metadata['user_id'] = user_id
-#         metadata['customer_id'] = customer_id
-#         metadata_json = json.dumps(metadata)
-#         metadata_pack = metadata_json.encode('utf-8')
-#         metadata_len = len(metadata_pack)
-#         
-#         total_size = (Constant.HEAD_LENGTH +
-#                       (Constant.TASKINFO_FIXED_LENGTH + metadata_len) * count)
-#         dst_type = Constant.METADATA_TYPE
-#         src_id = int(Config.src_id, 16)
-#         dst_id = meta_src_id
-#         command = Constant.REMOTE_QUERY_DATA_RESP
-#         ack_code = Constant.ACK_REMOTE_QUERY_DATA
-#         
-#         # 构造消息头部
-#         fmt_head = Constant.FMT_COMMON_HEAD
-#         header = [total_size, self.major, self.minor, self.src_type, dst_type,
-#                   src_id, dst_id, trans_id, sequence, command, ack_code, total,
-#                   offset, count]
-#         head_pack = struct.pack(fmt_head, *header)
-#         conn.sendall(head_pack)
-#         
-#         addr = self.select_addr(sgw_info, lock)[0]
-#         sgw_ip = proxy_ip = addr[0]
-#         sgw_port = proxy_port = addr[1]
-#         sgw_id = proxy_id = addr[2]
-#         
-#         # 发送消息体
-#         site_id = body_unpack.get('site_id')[0]
-#         app_id = body_unpack.get('app_id')
-#         user_id = body_unpack.get('user_id')
-#         customer_id = body_unpack.get('customer_id')
-#         timestamp = body_unpack.get('timestamp')
-#         start = timestamp[0]
-#         end = timestamp[1]
-#         order_by = body_unpack.get('order_by')
-#         desc_key = body_unpack.get('desc')
-#         
-#         fmt_body = Constant.FMT_TASKINFO_SEND
-#         body_tmp = []
-#         with session_scope() as session:
-#             query = session.query(MetadataInfo)
-#             filt_ret = query.filter(and_(MetadataInfo.site_id == site_id,
-#                                      MetadataInfo.app_id.in_(app_id),
-#                                      MetadataInfo.user_id.in_(user_id),
-#                                      MetadataInfo.customer_id.in_(customer_id),
-#                                      MetadataInfo.timestamp.between(start, end)))
-#             if not desc_key:
-#                 for key in order_by:
-#                     ret = filt_ret.order_by(asc(key)).all()
-#             else:
-#                 for key in order_by:
-#                     ret = filt_ret.order_by(desc(key)).all()
-#                 
-#             for metadata_info in ret[offset: offset + count]:
-#                 site_id = metadata_info.site_id
-#                 app_id = metadata_info.app_id
-#                 file_name_tmp = metadata_info.file_name
-#                 region_id = metadata_info.region_id
-#                 timestamp = metadata_info.timestamp
-#                 file_name = file_name_tmp.encode('utf-8')
-#                 
-#                 body = [region_id, site_id, app_id, timestamp, sgw_port,
-#                         proxy_port, sgw_ip, proxy_ip, sgw_id, proxy_id,
-#                         file_name, metadata_len]
-#                 body_pack = struct.pack(fmt_body, *body)
-#                 body_tmp.append(body_pack + metadata_pack)
-#         body_query = b''.join(body_tmp)
-#         conn.sendall(body_query)
-            
     def handle_delete(self, head_unpack, body, conn, sgw_info, lock, conf_info):
         """
         @:处理Client的删除请求
@@ -1380,7 +1317,10 @@ class Client:
                 logger.info("处理Client删除元数据的请求,回复的head为：{}".format(header))
                 logger.info("处理Client删除元数据的请求,回复的body为：{}".format(body))
                 data = head_pack + body
-                conn.sendall(data)
+                try:
+                    conn.sendall(data)
+                except socket.error:
+                    conn.close()
                 
     def proxy_del(self, head_unpack, remote_body, conn, sgw_info, lock):
         """
@@ -1438,7 +1378,10 @@ class Client:
         logger.info("处理Client删除元数据的请求,回复的head为：{}".format(header))
         logger.info("处理Client删除元数据的请求,回复的body为：{}".format(body))
         data = head_pack + body_pack + metadata_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
             
     def _generate_del_msg(self, head_unpack, body, meta_src_id):
         """
@@ -1575,7 +1518,10 @@ class Client:
         head_pack = struct.pack(fmt_head, *header)
         logger.info("处理远端MetadataServer删除元数据的请求,回复的head为：{}".format(header))
         data = head_pack + body_pack + metadata_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
         
     def handle_config_upgrade(self, head_unpack, body, conn, conf_info):
         """
@@ -1601,20 +1547,8 @@ class Client:
         # 生成消息体 
         query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
-        region_id_info = query_body_unpack.get('region_id')
-        region_id = region_id_info[0]
-        metadata_ip = region_id_info[1]
-        metadata_port = region_id_info[2]
-
-        # test
-#         region_id = 1
-#         metadata_ip = '192.168.0.100'
-#         metadata_port = 3434
-        body = {}
-        body['region_id'] = region_id
-        body['metadata_ip'] = metadata_ip
-        body['metadata_port'] = metadata_port
-        body_json = json.dumps(body)
+        
+        body_json = json.dumps(query_body_unpack)
         body_pack = body_json.encode('utf-8')
         
         total = count = len(body_pack)
@@ -1633,7 +1567,10 @@ class Client:
         logger.info("处理Client配置升级的请求,回复的head为：{}".format(header))
         logger.info("处理Client配置升级的请求,回复的body为：{}".format(body_json))
         data = head_pack + body_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
     
     def handle_client_upgrade(self, head_unpack, body, conn, conf_info):
         """
@@ -1661,19 +1598,8 @@ class Client:
         # 生成消息体 
         query_body_unpack = self.get_conf(site_id, conf_info)
         logger.info("向ConfigServer查询到的信息为：{}".format(query_body_unpack))
-        file_url = query_body_unpack.get('file_url')
-        file_name = query_body_unpack.get('file_name')
-        file_md5 = query_body_unpack.get('file_md5')
         
-        #test
-#         file_url = 'http://www.baidu.com'
-#         file_name = 'helloworld'
-#         file_md5 = 0
-        body = {}
-        body['file_url'] = file_url
-        body['file_name'] = file_name
-        body['file_md5'] = file_md5
-        body_json = json.dumps(body)
+        body_json = json.dumps(query_body_unpack)
         body_pack = body_json.encode('utf-8')
         
         total = count = len(body_pack)
@@ -1692,5 +1618,11 @@ class Client:
         logger.info("处理Client软件升级的请求,回复的head为：{}".format(header))
         logger.info("处理Client软件升级的请求,回复的body为：{}".format(body_json))
         data = head_pack + body_pack
-        conn.sendall(data)
+        try:
+            conn.sendall(data)
+        except socket.error:
+            conn.close()
+        
+        
+        
         

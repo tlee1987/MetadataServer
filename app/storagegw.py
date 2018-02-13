@@ -1,15 +1,15 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
-import struct
-import  socket
 from collections import deque
+import  socket
+import struct
 # from socket import inet_aton
 # from binascii import hexlify
 
-from log import logger
-from config import Config, Constant
 from app.models import SgwStaus, SgwStatic
 from app.models import session_scope
+from config import Config, Constant
+from log import logger
 
 
 class StorageGW:
@@ -20,8 +20,8 @@ class StorageGW:
     disk_used    disk_free    netio_input    netio_output
     conn_state    conn_dealed    
     @:保存sgw信息的数据结构
-    {group_id1: [disk_free, [[addr1, addr2, ...], region_id, system_id, group_id1]],
-    group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
+    {group_id1: [disk_free1, [deque[addr1, addr2, ...], region_id, system_id, group_id1]],
+    group_id2: [disk_free2, [deque[addr3, addr4, ...], region_id, system_id, group_id2]],
     ...}
     """
     def __init__(self, sgw_id, region_id, system_id, group_id, sgw_version,
@@ -83,7 +83,7 @@ class StorageGW:
         head_pack = struct.pack(fmt_head, *header)
         return head_pack
     
-    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sgw_id_list,
+    def handle_hb(self, head_unpack, conn, sgw_info, lock, sgw_id_list,
                   addr_list):
         """
         @:处理sgw心跳消息
@@ -95,6 +95,7 @@ class StorageGW:
             try:
                 conn.sendall(response)
             except socket.error:
+                from app.tcpserver import sel
                 sel.unregister(conn)
                 conn.close()
             self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list,
@@ -116,6 +117,7 @@ class StorageGW:
         group_id2: [disk_free, [[addr3, addr4, ...], region_id, system_id, group_id2]],
         ...}
         addr = [ip, port, sgw_id]
+        sgw_ip为ip地址字符串形式，self.listen_ip为ip地址十进制形式
         """
         logger.info('执行register_sgw,注册sgw网关信息')
         sgw_id = head_unpack[5]
@@ -142,19 +144,26 @@ class StorageGW:
                                        region_id=self.region_id,
                                        status=True)
                 with session_scope() as session:
-                    session.add(sgw_static)
-                    
+                    query = session.query(SgwStatic)
+                    filt_ret = query.filter(SgwStatic.sgw_id == sgw_id).all()
+                    if not filt_ret:
+                        session.add(sgw_static)
+             
             if self.group_id not in sgw_info:
                 sgw_info[self.group_id] = [self.disk_free, [deque(addr_list),
                                            Config.region_id, Config.system_id,
                                            self.group_id]]
+                
             elif (self.group_id in sgw_info and
                             self.disk_free < sgw_info[self.group_id][0]):
-                sgw_info[self.group_id][0] = self.disk_free
-                sgw_info[self.group_id][1][0] = deque(addr_list)
+                sgw_info[self.group_id] = [self.disk_free, [deque(addr_list),
+                                           Config.region_id, Config.system_id,
+                                           self.group_id]]
+                 
             else:
-                sgw_info[self.group_id][1][0] = deque(addr_list)
-                
+                sgw_info[self.group_id] = [self.disk_free, [deque(addr_list),
+                                           Config.region_id, Config.system_id,
+                                           self.group_id]]
         finally:
             lock.release()
             
