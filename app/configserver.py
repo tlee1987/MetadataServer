@@ -11,8 +11,8 @@ import psutil
 from config import Config, Constant
 from log import logger
 
-
 # from multiprocessing import Process
+
 class ConfigServer:
 
     def __init__(self):
@@ -212,7 +212,7 @@ class ConfigServer:
         while length:
             try:
                 block = self.sock.recv(length)
-            except socket.error:
+            except:
                 self.sock.close()
                 break
             else:
@@ -239,6 +239,7 @@ class ConfigServer:
     def conf_read(self, conf_info):
         logger.info('执行conf_read,接收ConfigServer返回的消息')
         while True:
+            time.sleep(0.1)
             try:
                 head_unpack, body = self.get_msg()
             except:

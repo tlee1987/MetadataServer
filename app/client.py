@@ -29,8 +29,8 @@ class Client:
         {"config_version": config_version,
         "client_version": client_version}
         """
-        #         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
-        #          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
         client_src_id = head_unpack[5]
         trans_id = head_unpack[7]
         sequence = head_unpack[8]
@@ -73,8 +73,8 @@ class Client:
                 conf_info.pop(key)
                 return body_unpack
             else:
-                logger.info('延时3秒发送查询请求')
-                time.sleep(3)
+                logger.info('延时2秒发送查询请求')
+                time.sleep(2)
         else:
             logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
 
@@ -124,6 +124,7 @@ class Client:
                     body_version = {}
                     body_version['config_version'] = config_version
                     body_version['client_version'] = client_version
+                    version_info[str(site_id)] = body_version
                     ack_code = Constant.ACK_CLIENT_HB_FAILED
             else:
                 body_version = version_info.get(str(site_id))
@@ -131,9 +132,10 @@ class Client:
 
             response = self._generate_resp_hb(head_unpack, body_version,
                                               ack_code)
+                
             try:
                 conn.sendall(response)
-            except socket.errno:
+            except socket.error:
                 conn.close()
     
     def select_addr(self, sgw_info, lock):
@@ -278,7 +280,6 @@ class Client:
                                         user_id=metadata_internal[6],
                                         customer_id=metadata_internal[7],
                                         timestamp=metadata_internal[8])
-#             sql_queue.put_nowait(metadata_sql)
             with session_scope() as session:
                 session.add(metadata_sql)
             
@@ -865,7 +866,7 @@ class Client:
         while length:
             try:
                 block = sock.recv(length)
-            except socket.error:
+            except:
                 sock.close()
                 break
             else:

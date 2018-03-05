@@ -95,8 +95,6 @@ class StorageGW:
             try:
                 conn.sendall(response)
             except socket.error:
-                from app.tcpserver import sel
-                sel.unregister(conn)
                 conn.close()
             self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list,
                               addr_list)
@@ -104,7 +102,6 @@ class StorageGW:
             with session_scope() as session:
                 session.add(self.sgw_status)
         else:
-            sel.unregister(conn)
             conn.close()
             logger.error('sgw心跳消息中的region_id或者system_id与Metadata Server'
                          '本地配置的region_id和system_id不一致')
