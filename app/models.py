@@ -162,6 +162,17 @@ def session_scope():
     finally:
         session.close()
         
+@contextmanager
+def session_scope1():  
+    session = SessionType()
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
     

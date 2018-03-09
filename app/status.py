@@ -72,6 +72,55 @@ class StatusServer:
         netio_output = netio_info[0]
         timestamp = int(time.time())
         
+        metadata_status = MetadataStatus(region_id=region_id,
+                                         system_id=system_id,
+                                         meta_version=meta_version,
+                                         cpu_percent=cpu_percent,
+                                         mem_used=mem_used,
+                                         mem_free=mem_free,
+                                         disk_used=disk_used,
+                                         disk_free=disk_free,
+                                         netio_input=netio_input,
+                                         netio_output=netio_output,
+                                         timestamp=timestamp)
+        
+        infoDict = {}
+        infoDict['region_id'] = region_id
+        infoDict['system_id'] = system_id
+        infoDict['meta_version'] = meta_version
+        infoDict['cpu_percent'] = cpu_percent
+        infoDict['mem_used'] = mem_used
+        infoDict['mem_free'] = mem_free
+        infoDict['disk_used'] = disk_used
+        infoDict['disk_free'] = disk_free
+        infoDict['netio_input'] = netio_input
+        infoDict['netio_output'] = netio_output
+        infoDict['timestamp'] = timestamp
+        return metadata_status   
+    
+    def get_info1(self):
+        """
+        @:生成MetadataServer的状态信息
+        region_id    system_id    meta_version    cpu_percent    mem_used
+        mem_free    disk_uesd    disk_free    netio_input    netio_output
+        timestamp
+        """
+        cpu_percent = int(psutil.cpu_percent())
+        mem_info = list(psutil.virtual_memory())[-2:]
+        disk_info = list(psutil.disk_usage('/'))[1:3]
+        netio_info = list(psutil.net_io_counters())[:2]
+        
+        region_id = Config.region_id
+        system_id = Config.system_id
+        meta_version = Constant.METADATA_VERSION
+        mem_used = mem_info[0]
+        mem_free = mem_info[1]
+        disk_used = disk_info[0]
+        disk_free = disk_info[1]
+        netio_input = netio_info[1]
+        netio_output = netio_info[0]
+        timestamp = int(time.time())
+        
         self.metadata_status = MetadataStatus(region_id=region_id,
                                               system_id=system_id,
                                               meta_version=meta_version,
@@ -102,7 +151,7 @@ class StatusServer:
         """
         @:生成发送给StatusServer的心跳消息
         """
-        d = self.get_info()
+        d = self.get_info1()
         body = json.dumps(d)
         total = count = len(body.encode('utf-8'))
         length = total + Constant.HEAD_LENGTH
@@ -115,15 +164,18 @@ class StatusServer:
 
     def send_hb_timer(self):
         """
-        @:构造往数据库写状态消息的定时器
+        @:往数据库写状态消息的定时器
         """
 #         data = self.generate_hb()
 #         self.sock.sendall(data)
-        self.get_info()
-#         logger.info('metadata_status:{}'.format(self.metadata_status))
-        with session_scope() as session:
-            session.add(self.metadata_status)
-        global timer
+        metadata_status = self.get_info()
+#         logger.info('metadata_status:{}'.format(metadata_status))
+        try:
+            with session_scope() as session:
+                session.add(metadata_status)
+        except:
+            with session_scope() as session:
+                session.add(metadata_status)
         timer = threading.Timer(Constant.TIME, self.send_hb_timer)
         timer.start()
         flag = timer.is_alive()
@@ -133,13 +185,15 @@ class StatusServer:
      
     def send_hb(self):
         """
-        @:定时写状态信息
-        """       
-        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
-        timer.start()
-        logger.info("!status timer's name is:{}".format(timer.name))
-        logger.info("!status timer's ident is:{}".format(timer.ident))
-
+        """
+        while True:
+            logger.info('metadata server定时写状态信息:True')
+            metadata_status = self.get_info()
+            with session_scope() as session:
+                session.add(metadata_status)
+            time.sleep(Constant.TIME)
+        
+        
 
 if __name__ == '__main__':
     status_server = StatusServer()

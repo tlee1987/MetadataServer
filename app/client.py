@@ -57,7 +57,7 @@ class Client:
         data = head_pack + body_pack
         return data
     
-    def get_conf(self, site_id, conf_info):
+    def get_conf1(self, site_id, conf_info):
         '''
         @:向ConfigServer查询Client的配置信息
         @:查询不成功查3次
@@ -77,6 +77,29 @@ class Client:
                 time.sleep(2)
         else:
             logger.error('查询3次未查到site_id:{}的配置信息'.format(site_id))
+            
+    def get_conf(self, site_id, conf_info):
+        '''
+        @:向ConfigServer查询Client的配置信息
+        '''
+        logger.info('执行get_conf,向ConfigServer发送查询信息')
+        config_server.send_msg(site_id)
+        try:
+            res = config_server.get_msg()
+            if res:
+                _, body = res
+                try:
+                    body_unpack = json.loads(body.decode('utf-8'))
+                except json.JSONDecodeError:
+                    body_unpack = None
+            else:
+                body_unpack = None
+        except:
+            logger.error('执行get_conf,查询site_id:{}配置失败'.format(site_id))
+        
+        else:
+            logger.info("get_conf中的body_unpack:{}".format(body_unpack))
+            return body_unpack
 
     def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
         """
@@ -117,8 +140,9 @@ class Client:
                     version_info[str(site_id)] = body_version
                     ack_code = Constant.ACK_CLIENT_HB_SUCCESS
                 else:
-                    logger.error('经过{}次查询未查询到配置'
-                                 '信息'.format(Constant.try_times))
+#                     logger.error('经过{}次查询未查询到配置'
+#                                  '信息'.format(Constant.try_times))
+                    logger.error('在handle_hb中，经过查询未查询到配置信息')
                     config_version = body_unpack[3]
                     client_version = body_unpack[4]
                     body_version = {}
@@ -132,7 +156,6 @@ class Client:
 
             response = self._generate_resp_hb(head_unpack, body_version,
                                               ack_code)
-                
             try:
                 conn.sendall(response)
             except socket.error:
@@ -833,31 +856,6 @@ class Client:
         except socket.error:
             sock.close()
         
-#     def recv_remote_msg(self, sock):
-#         """
-#         :接收RemoteMetadataServer发回的消息
-#         """
-#         data = b''
-#         while True:
-#             more = sock.recv(Constant.BUFSIZE)
-#             if not more:
-#                 break
-#             data += more
-#             while True:
-#                 if len(data) < Constant.HEAD_LENGTH:
-#                     logger.warning('接收到的数据包长度为{}，小于消息头部长度64，'
-#                                    '继续接收数据'.format(len(data)))
-#                     break
-#                 head_unpack = struct.unpack(Constant.FMT_COMMON_HEAD,
-#                                          data[:Constant.HEAD_LENGTH])
-#                 total_size = head_unpack[0]
-#                 if len(data) < total_size:
-#                     logger.warning('接收到的数据包长度为{}，总共为{}，数据包不完整，'
-#                                    '继续接收数据'.format(len(data), total_size))
-#                     break
-#                 body = data[Constant.HEAD_LENGTH: total_size]
-#                 return head_unpack, body
-        
     def recvall_remote(self, sock, length):
         """
         @:接收RemoteMetadataServer发回的消息
@@ -870,8 +868,6 @@ class Client:
                 sock.close()
                 break
             else:
-                if not block:
-                    break
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
@@ -885,7 +881,7 @@ class Client:
         try:
             head_unpack = struct.unpack(fmt_head, header)
         except struct.error:
-            pass
+            sock.close()
         else:
             total_size = head_unpack[0]
             body_size = total_size - Constant.HEAD_LENGTH
@@ -899,7 +895,7 @@ class Client:
         try:
             headpack = self.recv_remote_msg(sock)[0]
         except:
-            pass
+            sock.close()
         else:
             total = headpack[11]
             return total

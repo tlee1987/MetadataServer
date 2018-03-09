@@ -10,7 +10,6 @@ import psutil
 
 from config import Config, Constant
 from log import logger
-
 # from multiprocessing import Process
 
 class ConfigServer:
@@ -39,12 +38,17 @@ class ConfigServer:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         except socket.error as e:
             logger.error('Created config socket Failed:{}'.format(e))
+        else:
+            sock.settimeout(20)
             
         try:
             sock.connect(ADDR)
             logger.info('连接至ConfigServer的地址为{}'.format(ADDR))
         except socket.error:
             logger.error('该请求的地址{}无效，与ConfigServer连接失败'.format(ADDR))
+            sock.close()
+        except socket.timeout:
+            logger.error('与ConfigServer连接超时')
             sock.close()
         return sock
 
@@ -108,15 +112,21 @@ class ConfigServer:
 
     def send_hb_timer(self):
         """
-        @:构造发心跳消息的定时器
+        @:定时发心跳消息
         """
         data = self.generate_hb()
         try:
             self.sock.sendall(data)
         except socket.error:
             self.sock.close()
+            time.sleep(3)
+            self.sock = self._generate_conf_sock()
+        except socket.timeout:
+            self.sock.close()
+            self.sock = self._generate_conf_sock()
+        except:
+            self.sock.close()
         else:
-            global timer
             timer = threading.Timer(Constant.TIME, self.send_hb_timer)
             timer.start()
             flag = timer.is_alive()
@@ -126,13 +136,24 @@ class ConfigServer:
 
     def send_hb(self):
         """
-        @:定时发心跳消息
         """
-        timer = threading.Timer(Constant.TIME, self.send_hb_timer)
-        timer.start()
-        logger.info("!config timer's name is:{}".format(timer.name))
-        logger.info("!config timer's ident is:{}".format(timer.ident))
-
+        while True:
+            logger.info('给config server定时发心跳:True')
+            data = self.generate_hb()
+            try:
+                self.sock.sendall(data)
+            except socket.error:
+                self.sock.close()
+                time.sleep(3)
+                self.sock = self._generate_conf_sock()
+            except socket.timeout:
+                self.sock.close()
+                self.sock = self._generate_conf_sock()
+            except:
+                self.sock.close()
+            else:
+                time.sleep(Constant.TIME)
+        
     def generate_msg(self, site_id):
         """
         @:生成发给ConfigServer查询client相关信息的消息
@@ -169,40 +190,8 @@ class ConfigServer:
             self.sock.sendall(req)
         except socket.error:
             self.sock.close()
-
-#     def recv_msg(self):
-#         """
-#         :解析ConfigServer回复的消息
-#         """
-#         logger.info('解析ConfigServer回复的消息')
-#         data = b''
-#         while True:
-#             more = self.sock.recv(Constant.BUFSIZE)
-#             if not more:
-#                 break
-#             data += more
-#             while True:
-#                 if len(data) < Constant.HEAD_LENGTH:
-#                     logger.warning('接收到的数据包长度为{}，小于消息头部长度64，'
-#                                    '继续接收数据'.format(len(data)))
-#                     break
-#                 headpack = struct.unpack(Constant.FMT_COMMON_HEAD,
-#                                          data[:Constant.HEAD_LENGTH])
-#                 total_size = headpack[0]
-#                 if len(data) < total_size:
-#                     logger.warning('接收到的数据包长度为{}，总共为{}，数据包不完整，'
-#                                    '继续接收数据'.format(len(data), total_size))
-#                     break
-#                 body = data[Constant.HEAD_LENGTH: total_size]
-# #                 try:
-# #                     logger.info(headpack)
-# #                     self.data_handler(headpack, body)
-# #                 except:
-# #                     logger.error('对Config Server的数据处理出现错误')
-# #                     sys.exit()
-# #                 else:
-# #                     data = data[total_size:]
-#                 return headpack, body
+        except socket.timeout:
+            self.sock.close()
 
     def recvall(self, length):
         """
@@ -229,7 +218,7 @@ class ConfigServer:
         try:
             head_unpack = struct.unpack(fmt_head, header)
         except struct.error:
-            pass
+            self.sock.close()
         else:
             total_size = head_unpack[0]
             body_size = total_size - Constant.HEAD_LENGTH
@@ -239,18 +228,16 @@ class ConfigServer:
     def conf_read(self, conf_info):
         logger.info('执行conf_read,接收ConfigServer返回的消息')
         while True:
-            time.sleep(0.1)
             try:
                 head_unpack, body = self.get_msg()
             except:
-                pass
+                self.sock.close()
+                break
             else:
                 try:
                     self.data_handler(head_unpack, body, conf_info)
                 except:
                     logger.info('处理ConfigServer消息错误')
-                    self.sock.close()
-                    break
 
     def data_handler(self, head_unpack, body, conf_info):
         """
@@ -288,6 +275,14 @@ class ConfigServer:
             logger.info('配置有变更，ConfigServer主动下发通知')
             body_unpack = json.loads(body.decode('utf-8'))
             conf_info[key] = body_unpack
+            
+            from app.tcpserver import version_info
+            body_version = {}
+            config_version = body_unpack.get('config_version')
+            client_version = body_unpack.get('client_version')
+            body_version['config_version'] = config_version
+            body_version['client_version'] = client_version
+            version_info[key] = body_version
 
         else:
             logger.info('接受ConfigServer消息有误')
@@ -323,20 +318,20 @@ if __name__ == '__main__':
     site_id = 2
 #     p = Process(target=query, args=(conf_info, site_id))
 #     p.start()
-    for i in range(Constant.try_times):
-        logger.info('第{}次发送查询信息'.format(i+1))
-        config_server.send_msg(site_id)
-        key = str(site_id)
-        body_unpack = conf_info.get(key)
-        if body_unpack:
-            conf_info.pop(key)
-            logger.info(body_unpack)
-            break
-        else:
-            logger.info('延时1秒发送查询请求')
-            time.sleep(3)
-    else:
-        logger.error('查询3次未查到site_id：{}的配置信息'.format(site_id))
+#     for i in range(Constant.try_times):
+#         logger.info('第{}次发送查询信息'.format(i+1))
+#         config_server.send_msg(site_id)
+#         key = str(site_id)
+#         body_unpack = conf_info.get(key)
+#         if body_unpack:
+#             conf_info.pop(key)
+#             logger.info(body_unpack)
+#             break
+#         else:
+#             logger.info('延时1秒发送查询请求')
+#             time.sleep(3)
+#     else:
+#         logger.error('查询3次未查到site_id：{}的配置信息'.format(site_id))
 
         
         
