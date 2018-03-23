@@ -49,8 +49,13 @@ class TcpServer:
                 conn.close()
                 break
             else:
-                length -= len(block)
-                blocks.append(block)
+                if block:
+                    length -= len(block)
+                    blocks.append(block)
+#                 else:
+#                     sel.unregister(conn)
+#                     conn.close()
+#                     break
         return b''.join(blocks)
        
     def get_msg(self, conn, sel):
