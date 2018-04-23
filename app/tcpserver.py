@@ -7,8 +7,6 @@ import selectors
 import threading
 from collections import deque
 from multiprocessing import Process, Manager, Lock
-# from queue import Empty
-# from multiprocessing import Queue
 
 from log import logger
 from config import Config, Constant
@@ -16,7 +14,6 @@ from app.storagegw import StorageGW
 from app.client import Client
 from app.configserver import config_server
 from app.status import StatusServer
-# from app.models import session_scope
 
       
 class TcpServer:
@@ -49,13 +46,8 @@ class TcpServer:
                 conn.close()
                 break
             else:
-                if block:
-                    length -= len(block)
-                    blocks.append(block)
-#                 else:
-#                     sel.unregister(conn)
-#                     conn.close()
-#                     break
+                length -= len(block)
+                blocks.append(block)
         return b''.join(blocks)
        
     def get_msg(self, conn, sel):
@@ -115,12 +107,12 @@ class TcpServer:
                 sgw_id = head_unpack[5]
                 storagegw = StorageGW(sgw_id, *body_unpack)
 #                 storagegw.handle_hb(head_unpack, conn, sgw_info, lock,
-#                                     sgw_id_list, addr_list)
+#                                     sgw_id_info, addr_list)
                 t1 = threading.Thread(target=storagegw.handle_hb,
-                                     args=(head_unpack, conn, sgw_info,
-                                           lock, sgw_id_list, addr_list))
+                                      args=(head_unpack, conn, sel, sgw_info,
+                                            lock, sgw_id_info, addr_list))
                 t1.start()
-                logger.info('当前sgw的sgw_id列表为：{}'.format(sgw_id_list))
+                logger.info('当前sgw的sgw_id信息为：{}'.format(sgw_id_info))
                 logger.info('当前sgw的addr_list列表为：{}'.format(addr_list))
                 logger.info("sgw注册后的数据结构：{}".format(sgw_info))
                 
@@ -371,8 +363,10 @@ if __name__ == '__main__':
        group_id2: [disk_free2, [deque[addr3, addr4, ...], region_id, system_id, group_id2]],
         ...}
        addr = (ip, port, sgw_id)
-    @:sgw_id_list,保存sgw的sgw_id信息，用于判断是否将sgw的信息写入数据库中的sgw_static表
-    @:数据结构为：[sgw_id1, sgw_id2, sgw_id3, ...]
+    @:sgw_id_info,保存sgw的sgw_id信息，用于判断是否将sgw的信息写入数据库中的sgw_static表，也用于判断是否掉线
+    @:数据结构为：{sgw_id1: timestamp,
+                sgw_id2: timestamp,
+                sgw_id3: timestamp, ...}
     @:addr_list,保存sgw的addr信息,用于更新sgw_info
     @:数据结构为：[(self.listen_ip1, self.listen_port1, sgw_id1), ...]
     @:conf_info,用于向ConfigServer查询时，保存ConfigServer回复的信息
@@ -383,7 +377,8 @@ if __name__ == '__main__':
     m = Manager()
     version_info = m.dict()
     sgw_info = m.dict()
-    sgw_id_list = m.list()
+    sgw_id_info = m.dict()
+    client_id_info = m.dict()
     addr_list = m.list()
     sgw_info = {2: [1024000, [deque([(3232252929, 8000, 1000),
                                      (3232252930, 8000, 1001),
@@ -401,6 +396,10 @@ if __name__ == '__main__':
     status_server_timer = threading.Thread(target=status_server.send_hb)
     status_server_timer.start()
     
+    check_sgw_hb_thread = threading.Thread(target=StorageGW.check_sgw_hb,
+                                           args=(sgw_id_info, addr_list))
+    check_sgw_hb_thread.start()
+    
     logger.info("conf_recv_thread's name:{}".format(conf_recv_thread.name))
     logger.info("conf_recv_thread's ident:{}".format(conf_recv_thread.ident))
     logger.info("conf_recv_thread's is_alive:{}".format(conf_recv_thread.is_alive()))
@@ -410,6 +409,9 @@ if __name__ == '__main__':
     logger.info("status_server_timer's name:{}".format(status_server_timer.name))
     logger.info("status_server_timer's ident:{}".format(status_server_timer.ident))
     logger.info("status_server_timer's is_alive:{}".format(status_server_timer.is_alive()))
+    logger.info("check_sgw_hb_thread's name:{}".format(check_sgw_hb_thread.name))
+    logger.info("check_sgw_hb_thread's ident:{}".format(check_sgw_hb_thread.ident))
+    logger.info("check_sgw_hb_thread's is_alive:{}".format(check_sgw_hb_thread.is_alive()))
     
     logger.info('thread {} is running...'.format(threading.current_thread().name))
     logger.info('active_count:{}'.format(threading.active_count()))

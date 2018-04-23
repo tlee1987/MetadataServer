@@ -1,10 +1,9 @@
 #!/usr/bin/python3
 # -*- coding=utf-8 -*-
-from collections import deque
-import  socket
+import socket
 import struct
-# from socket import inet_aton
-# from binascii import hexlify
+import time
+from collections import deque
 
 from app.models import SgwStaus, SgwStatic
 from app.models import session_scope
@@ -83,7 +82,7 @@ class StorageGW:
         head_pack = struct.pack(fmt_head, *header)
         return head_pack
     
-    def handle_hb(self, head_unpack, conn, sgw_info, lock, sgw_id_list,
+    def handle_hb(self, head_unpack, conn, sel, sgw_info, lock, sgw_id_info,
                   addr_list):
         """
         @:处理sgw心跳消息
@@ -96,17 +95,20 @@ class StorageGW:
                 conn.sendall(response)
             except socket.error:
                 conn.close()
-            self.register_sgw(head_unpack, conn, sgw_info, lock, sgw_id_list,
-                              addr_list)
-            
-            with session_scope() as session:
-                session.add(self.sgw_status)
+                sel.unregister(conn)
+            else:
+                self.register_sgw(head_unpack, conn, sgw_info, lock,
+                                  sgw_id_info, addr_list)
+                
+                with session_scope() as session:
+                    session.add(self.sgw_status)
         else:
             conn.close()
+            sel.unregister(conn)
             logger.error('sgw心跳消息中的region_id或者system_id与Metadata Server'
                          '本地配置的region_id和system_id不一致')
             
-    def register_sgw(self, head_unpack, conn, sgw_info, lock, sgw_id_list,
+    def register_sgw(self, head_unpack, conn, sgw_info, lock, sgw_id_info,
                      addr_list):
         """
         @:网关注册
@@ -132,20 +134,26 @@ class StorageGW:
                 addr_list.append(addr_converted)
                 logger.info('执行register_sgw后，'
                             'addr_list:{}'.format(addr_list))
-            if sgw_id not in sgw_id_list:
-                sgw_id_list.append(sgw_id)
+                
+            if sgw_id not in sgw_id_info:
+                sgw_id_info[sgw_id] = int(time.time())
                 logger.info('执行register_sgw后，'
-                            'sgw_id_list:{}'.format(sgw_id_list))
+                            'sgw_id_info:{}'.format(sgw_id_info))
                 sgw_static = SgwStatic(sgw_id=sgw_id,
                                        sgw_ip=sgw_ip,
                                        region_id=self.region_id,
                                        status=True)
                 with session_scope() as session:
                     query = session.query(SgwStatic)
-                    filt_ret = query.filter(SgwStatic.sgw_id == sgw_id).all()
+                    filt = query.filter(SgwStatic.sgw_id == sgw_id)
+                    filt_ret = filt.all()
                     if not filt_ret:
                         session.add(sgw_static)
-             
+                    else:
+                        filt.update({'status': True})
+            else:
+                sgw_id_info[sgw_id] = int(time.time())
+            
             if self.group_id not in sgw_info:
                 sgw_info[self.group_id] = [self.disk_free, [deque(addr_list),
                                            Config.region_id, Config.system_id,
@@ -164,6 +172,22 @@ class StorageGW:
         finally:
             lock.release()
             
-    def unregister_sgw(self, addr):
-        pass
-            
+    @staticmethod
+    def check_sgw_hb(sgw_id_info, addr_list):
+        """
+        """
+        while True:
+            for sgw_id, timestamp in sgw_id_info.items():
+                delay = int(time.time()) - timestamp
+                if delay > Constant.DELAYED:
+                    sgw_id_info.pop(sgw_id)
+                    for addr in addr_list:
+                        if addr[2] == sgw_id:
+                            addr_list.remove(addr)
+                    with session_scope() as session:
+                        query = session.query(SgwStatic)
+                        filt_ret = query.filter(SgwStatic.sgw_id == sgw_id)
+                        filt_ret.update({'status': False})
+            time.sleep(5)          
+        
+        

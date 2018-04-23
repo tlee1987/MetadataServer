@@ -10,7 +10,6 @@ import psutil
 
 from config import Config, Constant
 from log import logger
-# from multiprocessing import Process
 
 class ConfigServer:
 
@@ -39,7 +38,7 @@ class ConfigServer:
         except socket.error as e:
             logger.error('Created config socket Failed:{}'.format(e))
         else:
-            sock.settimeout(20)
+            sock.settimeout(10)
             
         try:
             sock.connect(ADDR)
