@@ -41,46 +41,41 @@ class TcpServer:
         while length:
             try:
                 block = conn.recv(length)
-            except:
-                sel.unregister(conn)
-                conn.close()
-                break
+            except OSError:
+                pass
+#                 sel.unregister(conn)
+#                 conn.close()
+#                 break
             else:
                 length -= len(block)
                 blocks.append(block)
         return b''.join(blocks)
        
-    def get_msg(self, conn, sel):
+    def read(self, conn, sel):
         """
         """
-        header = self.recvall(conn, sel, Constant.HEAD_LENGTH)
         fmt_head = Constant.FMT_COMMON_HEAD
         try:
+            header = self.recvall(conn, sel, Constant.HEAD_LENGTH)
             head_unpack = struct.unpack(fmt_head, header)
         except struct.error:
+            sel.unregister(conn)
+            conn.close()
+        except:
             sel.unregister(conn)
             conn.close()
         else:
             total_size = head_unpack[0]
             body_size = total_size - Constant.HEAD_LENGTH
-            body = self.recvall(conn, sel, body_size)
-            return head_unpack, body
-           
-    def read(self, conn, sel):
-        """
-        """
-        try:
-            head_unpack, body = self.get_msg(conn, sel)
-        except:
-            sel.unregister(conn)
-            conn.close()
-        else:
             try:
+                body = self.recvall(conn, sel, body_size)
                 logger.info("TcpServer收到的head_unpack:{}".format(head_unpack))
                 logger.info("TcpServer收到的body:{}".format(body))
                 self.data_handler(head_unpack, body, conn, sel)
             except:
                 logger.error('TcpServer数据处理出现错误')
+                sel.unregister(conn)
+                conn.close()
        
     def data_handler(self, head_unpack, body, conn, sel):
         """
@@ -106,8 +101,6 @@ class TcpServer:
             else:
                 sgw_id = head_unpack[5]
                 storagegw = StorageGW(sgw_id, *body_unpack)
-#                 storagegw.handle_hb(head_unpack, conn, sgw_info, lock,
-#                                     sgw_id_info, addr_list)
                 t1 = threading.Thread(target=storagegw.handle_hb,
                                       args=(head_unpack, conn, sel, sgw_info,
                                             lock, sgw_id_info, addr_list))
@@ -122,15 +115,10 @@ class TcpServer:
             """
             logger.info('收到Client心跳消息')
             client = Client()
-            try:
-#                 client.handle_hb(head_unpack, body, conn, conf_info, version_info)
-                t2 = threading.Thread(target=client.handle_hb,
-                                     args=(head_unpack, body, conn,
-                                           conf_info, version_info))
-                t2.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t2 = threading.Thread(target=client.handle_hb,
+                                 args=(head_unpack, body, conn, sel,
+                                       conf_info, version_info))
+            t2.start()
                
         elif command == Constant.CLIENT_UPLOAD_ROUTE:
             """
@@ -140,15 +128,12 @@ class TcpServer:
             logger.info(sgw_info)
             client = Client()
             try:
-#                 client.handle_upload(head_unpack, body, conn, sgw_info, lock)
                 t3 = threading.Thread(target=client.handle_upload,
-                                     args=(head_unpack, body, conn, sgw_info,
+                                     args=(head_unpack, body, conn, sel, sgw_info,
                                            lock))
                 t3.start()
             except:
                 logger.error('sgw还没有发心跳消息注册，无存储网关信息')
-                sel.unregister(conn)
-                conn.close()
                
         elif command == Constant.CLIENT_UPLOAD_SUCCESS:
             """
@@ -162,15 +147,19 @@ class TcpServer:
             """
             logger.info('收到Client查询记录数量的请求')
             client = Client()
-            try:
-#                 client.handle_query_num(head_unpack, body, conn, conf_info)
-                t4 = threading.Thread(target=client.handle_query_num,
-                                      args=(head_unpack, body, conn, conf_info))
-                t4.start()
-                
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t4 = threading.Thread(target=client.handle_query_num,
+                                  args=(head_unpack, body, conn, sel, conf_info))
+            t4.start()
+            
+        elif command == Constant.FILE_QUERY_NUM:
+            """
+            @:处理Fileportal查询记录数量的请求
+            """
+            logger.info('收到Fileportal查询记录数量的请求')
+            client = Client()
+            t13 = threading.Thread(target=client.handle_file_query_num,
+                                  args=(head_unpack, body, conn, sel))
+            t13.start()
                
         elif command == Constant.CLIENT_QUERY_DATA:
             """
@@ -178,16 +167,21 @@ class TcpServer:
             """
             logger.info('收到Client查询数据的请求')
             client = Client()
-            try:
-#                 client.handle_query_data(head_unpack, body, conn, sgw_info,
-#                                          lock, conf_info)
-                t5 = threading.Thread(target=client.handle_query_data,
-                                      args=(head_unpack, body, conn, sgw_info,
-                                            lock, conf_info))
-                t5.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t5 = threading.Thread(target=client.handle_query_data,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock, conf_info))
+            t5.start()
+                
+        elif command == Constant.FILE_QUERY_DATA:
+            """
+            @:处理Fileportal查询数据的请求
+            """
+            logger.info('收到Fileportal查询数据的请求')
+            client = Client()
+            t12 = threading.Thread(target=client.handle_file_query_data,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock))
+            t12.start()
                        
         elif command == Constant.REMOTE_QUERY_NUM:
             """
@@ -195,14 +189,9 @@ class TcpServer:
             """
             logger.info('收到RemoteMetadataServer查询记录数量的请求')
             client = Client()
-            try:
-#                 client.handle_remote_query_num(head_unpack, body, conn)
-                t6 = threading.Thread(target=client.handle_remote_query_num,
-                                      args=(head_unpack, body, conn))
-                t6.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t6 = threading.Thread(target=client.handle_remote_query_num,
+                                  args=(head_unpack, body, conn, sel))
+            t6.start()
            
         elif command == Constant.REMOTE_QUERY_DATA:
             """
@@ -210,16 +199,10 @@ class TcpServer:
             """
             logger.info('收到RemoteMetadataServer查询数据的请求')
             client = Client()
-            try:
-#                 client.handle_remote_query_data(head_unpack, body, conn,
-#                                                 sgw_info, lock)
-                t7 = threading.Thread(target=client.handle_remote_query_data,
-                                      args=(head_unpack, body, conn, sgw_info,
-                                            lock))
-                t7.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t7 = threading.Thread(target=client.handle_remote_query_data,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock))
+            t7.start()
                
         elif command == Constant.CLIENT_DEL:
             """
@@ -227,16 +210,21 @@ class TcpServer:
             """
             logger.info('收到Client删除元数据的请求')
             client = Client()
-            try:
-#                 client.handle_delete(head_unpack, body, conn, sgw_info, lock,
-#                                      conf_info)
-                t8 = threading.Thread(target=client.handle_delete,
-                                      args=(head_unpack, body, conn, sgw_info,
-                                            lock, conf_info))
-                t8.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t8 = threading.Thread(target=client.handle_delete,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock, conf_info))
+            t8.start()
+            
+        elif command == Constant.FILE_DEL:
+            """
+            @:处理Client删除元数据的请求
+            """
+            logger.info('收到Fileportal删除元数据的请求')
+            client = Client()
+            t14 = threading.Thread(target=client.handle_file_delete,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock))
+            t14.start()
                
         elif command == Constant.REMOTE_DEL:
             """
@@ -244,15 +232,10 @@ class TcpServer:
             """
             logger.info('收到RemoteMetadataServer的删除元数据的请求')
             client = Client()
-            try:
-#                 client.handle_remote_del(head_unpack, body, conn, sgw_info, lock)
-                t9 = threading.Thread(target=client.handle_remote_del,
-                                      args=(head_unpack, body, conn, sgw_info,
-                                            lock))
-                t9.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t9 = threading.Thread(target=client.handle_remote_del,
+                                  args=(head_unpack, body, conn, sel, sgw_info,
+                                        lock))
+            t9.start()
                
         elif command == Constant.CLIENT_CONFIG_UPGRADE:
             """
@@ -260,14 +243,9 @@ class TcpServer:
             """
             logger.info('收到Client配置升级的请求')
             client = Client()
-            try:
-#                 client.handle_config_upgrade(head_unpack, body, conn, conf_info)
-                t10 = threading.Thread(target=client.handle_config_upgrade,
-                                       args=(head_unpack, body, conn, conf_info))
-                t10.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t10 = threading.Thread(target=client.handle_config_upgrade,
+                                   args=(head_unpack, body, conn, sel, conf_info))
+            t10.start()
                
         elif command == Constant.CLIENT_UPGRADE:
             """
@@ -275,14 +253,9 @@ class TcpServer:
             """
             logger.info('收到Client软件升级的请求')
             client = Client()
-            try:
-#                 client.handle_client_upgrade(head_unpack, body, conn, conf_info)
-                t11 = threading.Thread(target=client.handle_client_upgrade,
-                                       args=(head_unpack, body, conn, conf_info))
-                t11.start()
-            except:
-                sel.unregister(conn)
-                conn.close()
+            t11 = threading.Thread(target=client.handle_client_upgrade,
+                                   args=(head_unpack, body, conn, sel, conf_info))
+            t11.start()
         else:
             logger.error('解析到未定义的命令字')
           
@@ -351,6 +324,14 @@ def _get_workers():
         if workers <= 0 or workers > Constant.DEFAULT_WORKERS:
             workers = Constant.DEFAULT_WORKERS
     return workers   
+
+def run(listener, sel, tcp_server):
+    sel.register(listener, selectors.EVENT_READ, tcp_server.accept)
+    while True:
+        events = sel.select()
+        for key, _ in events:
+            callback = key.data
+            callback(key.fileobj, sel)
     
 if __name__ == '__main__':
     """
@@ -387,12 +368,11 @@ if __name__ == '__main__':
     conf_recv_thread = threading.Thread(target=config_server.conf_read,
                                         args=(conf_info,))
     conf_recv_thread.start()
-#     config_server.send_hb_timer()
+ 
     conf_sendhb_timer = threading.Thread(target=config_server.send_hb)
     conf_sendhb_timer.start()
     
     status_server = StatusServer()
-#     status_server.send_hb_timer()
     status_server_timer = threading.Thread(target=status_server.send_hb)
     status_server_timer.start()
     
@@ -420,15 +400,15 @@ if __name__ == '__main__':
      
     workers = _get_workers()
     listener = _generate_srv_sock()
-     
     tcp_server = TcpServer()
+     
     logger.info('Starting TCP services...')
     logger.info('Listening at:{}'.format(listener.getsockname()))
-#     tcp_server.run()
 
     for i in range(workers):
         logger.info('开始启动第{0}个子进程, 总共{1}个子进程'.format(i+1, workers))
-        p = Process(target=tcp_server.run)
+        sel = selectors.DefaultSelector()
+        p = Process(target=run, args=(listener, sel, tcp_server))
         p.start()
         
 

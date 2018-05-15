@@ -101,7 +101,7 @@ class Client:
             logger.info("get_conf中的body_unpack:{}".format(body_unpack))
             return body_unpack
 
-    def handle_hb(self, head_unpack, body, conn, conf_info, version_info):
+    def handle_hb(self, head_unpack, body, conn, sel, conf_info, version_info):
         """
         @:处理Client心跳消息
         @:心跳消息内容字段：
@@ -159,6 +159,10 @@ class Client:
             try:
                 conn.sendall(response)
             except socket.error:
+                sel.unregister(conn)
+                conn.close()
+            except:
+                sel.unregister(conn)
                 conn.close()
     
     def select_addr(self, sgw_info, lock):
@@ -191,7 +195,7 @@ class Client:
         finally:
             lock.release()
         
-    def handle_upload(self, head_unpack, body, conn, sgw_info, lock):
+    def handle_upload(self, head_unpack, body, conn, sel, sgw_info, lock):
         """
         @:处理Client转存路径请求
         (operation, region_id, site_id, app_id, timestamp, sgw_port,
@@ -264,6 +268,7 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
         
 #         metadata_internal = (site_id, app_id, file_name, region_id, system_id,
@@ -308,7 +313,7 @@ class Client:
             
             metadata_info.pop(file_md5)
             
-    def handle_query_num(self, head_unpack, body, conn, conf_info):
+    def handle_query_num(self, head_unpack, body, conn, sel, conf_info):
         """
         query_json用来描述用户的查询条件，格式为：
         {"site_id": [id1, id2, ...],
@@ -382,9 +387,64 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
+            conn.close()
+            
+    def handle_file_query_num(self, head_unpack, body, conn, sel):
+        """
+        query_json用来描述用户的查询条件，格式为：
+        {"site_id": [id1, id2, ...],
+        "timestamp": [start_time, end_time],
+        "order_by": ["timestamp"],
+        "desc": bool}
+        bodyPack: site_id只对应历史 的region_id，不含当前的region_id
+        {str(site_id): ["region_id1", "region_id2", "region_id3"...],# 历史的region_id
+        "region_id": [region_id, meta_ip, meta_port, src_id],   # 当前环境配置的region_id
+        "region_id1": [region_id1, meta_ip, meta_port, src_id],
+        "region_id2": [region_id2, meta_ip, meta_port, src_id],
+        "region_id3": [region_id3, meta_ip, meta_port, src_id],
+        "config_version": config_version,
+        "client_version": client_version,
+        "file_url": file_url,
+        "file_name": file_name,
+        "file_md5": file_md5}
+        """
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info('执行handle_file_query_num,处理Fileportal查询记录数量的请求')
+        total_size = head_unpack[0]
+        client_src_id = head_unpack[5]
+        trans_id = head_unpack[7]
+        sequence = head_unpack[8]
+        offset = head_unpack[12]
+        count = head_unpack[13]
+        
+        local_res = self._get_local_file_query_num(body)
+        total = local_res
+        logger.info("在本地查询到的记录数量为：{}".format(local_res))
+        
+        src_id = int(Config.src_id, 16)
+        dst_id = client_src_id
+        command = Constant.FILE_QUERY_NUM_RESP
+        ack_code = Constant.ACK_CLIENT_QUERY_NUM
+        
+        fmt_head = Constant.FMT_COMMON_HEAD
+        header = [total_size, self.major, self.minor, self.src_type,
+                  self.dst_type, src_id, dst_id, trans_id, sequence, command,
+                  ack_code, total, offset, count]
+        head_pack = struct.pack(fmt_head, *header)
+        logger.info("处理Fileportal查询记录数量的请求，回复的head为：{}".format(header))
+        data = head_pack + body
+        try:
+            conn.sendall(data)
+        except socket.error:
+            sel.unregister(conn)
+            conn.close()
+        finally:
+            sel.unregister(conn)
             conn.close()
         
-    def handle_query_data(self, head_unpack, body, conn, sgw_info, lock,
+    def handle_query_data(self, head_unpack, body, conn, sel, sgw_info, lock,
                           conf_info):
         """
         @:查询元数据信息
@@ -423,14 +483,25 @@ class Client:
                 local_tmp = sorted(local_ret, key=itemgetter(*order_by),
                                    reverse=desc_key)
                 rets = local_tmp[offset: offset + count]
-                self.proxy_query_data(head_unpack, rets, conn, sgw_info, lock)
+                self.proxy_query_data(head_unpack, rets, conn, sel, sgw_info, lock)
             else:
-                self.handle_local_query_data(head_unpack, body, conn, sgw_info,
-                                            lock)
+                self.handle_local_query_data(head_unpack, body, conn, sel,
+                                             sgw_info, lock)
         else:
-            self.handle_local_query_data(head_unpack, body, conn, sgw_info, lock)
+            self.handle_local_query_data(head_unpack, body, conn, sel,
+                                         sgw_info, lock)
             
-    def proxy_query_data(self, head_unpack, rets, conn, sgw_info, lock):
+    def handle_file_query_data(self, head_unpack, body, conn, sel, sgw_info, lock):
+        """
+        @:查询元数据信息
+        """
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info('执行handle_file_query_data,处理Fileportal查询元数据信息的请求')
+        self.handle_local_file_query_data(head_unpack, body, conn, sel,
+                                          sgw_info, lock)
+        
+    def proxy_query_data(self, head_unpack, rets, conn, sel, sgw_info, lock):
         """
         @:代理查询功能
         """
@@ -497,6 +568,7 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
             
     def handle_query_data1(self, head_unpack, body, conn, sgw_info, lock,
@@ -950,7 +1022,31 @@ class Client:
             query_nums = filt_ret.count()
         return query_nums
     
-    def handle_remote_query_num(self, head_unpack, body, conn):
+    def _get_local_file_query_num(self, body):
+        """
+        @:MetadataServer收到远端查询请求后只进行本地查询
+        {"site_id": [id1, id2, ...],
+        "timestamp": [start_time, end_time],
+        "order_by": ["timestamp"],
+        "desc": bool}
+        """
+        logger.info("执行_get_local_file_query_num，获取本地查询到的记录数量")
+        body_unpack = json.loads(body.decode('utf-8'))
+        logger.info(body_unpack)
+        site_id = body_unpack.get('site_id')[0]
+        timestamp = body_unpack.get('timestamp')
+        start = timestamp[0]
+        end = timestamp[1]
+        
+        # 只查询数量 ，不用排序
+        with session_scope() as session:
+            query = session.query(MetadataInfo)
+            filt_ret = query.filter(and_(MetadataInfo.site_id == site_id,
+                                     MetadataInfo.timestamp.between(start, end)))
+            query_nums = filt_ret.count()
+        return query_nums
+    
+    def handle_remote_query_num(self, head_unpack, body, conn, sel):
         """
         @:将本地查询到的总记录条数发给发起请求的MetadataServer
         """
@@ -982,6 +1078,7 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
         
     def _get_local_query_data(self, head_unpack, body, sgw_info, lock):
@@ -1048,7 +1145,7 @@ class Client:
                 local_metadata.append(tmp_dict)
         return local_metadata
     
-    def handle_local_query_data(self, head_unpack, body, conn, sgw_info, lock):
+    def handle_local_query_data(self, head_unpack, body, conn, sel, sgw_info, lock):
         """
         :MetadataServer发送本地查询到的数据
         {"site_id": [id1, ...],
@@ -1139,13 +1236,111 @@ class Client:
                   ack_code, total, offset, count]
         head_pack = struct.pack(fmt_head, *header)
         logger.info("处理Client查询元数据信息的请求，回复的head为：{}".format(header))
+        logger.info("处理Client查询元数据信息的请求，回复的body为：{}".format(body_query))
         data = head_pack + body_query
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
+            
+    def handle_local_file_query_data(self, head_unpack, body, conn, sel, 
+                                     sgw_info, lock):
+        """
+        :MetadataServer发送本地查询到的数据
+        {"site_id": [id1, ...],
+        "timestamp": [start_time, end_time],
+        "order_by": ["timestamp"],
+        "desc": bool}
+        """
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info('执行handle_local_file_query_data,本地处理Fileportal查询元数据信息的请求')
+        client_src_id = head_unpack[5]
+        trans_id = head_unpack[7]
+        sequence = head_unpack[8]
+        total = head_unpack[11]
+        offset = head_unpack[12]
+        count = head_unpack[13]
+         
+        addr = self.select_addr(sgw_info, lock)[0]
+        sgw_ip = proxy_ip = addr[0]
+        sgw_port = proxy_port = addr[1]
+        sgw_id = proxy_id = addr[2]
+         
+        body_unpack = json.loads(body.decode('utf-8'))
+        site_id = body_unpack.get('site_id')[0]
+        timestamp = body_unpack.get('timestamp')
+        start = timestamp[0]
+        end = timestamp[1]
+        order_by = body_unpack.get('order_by')
+        desc_key = body_unpack.get('desc')
         
-    def handle_remote_query_data(self, head_unpack, body, conn, sgw_info, lock):
+        fmt_body = Constant.FMT_TASKINFO_SEND
+        body_tmp = []
+        with session_scope() as session:
+            query = session.query(MetadataInfo)
+            filt_ret = query.filter(and_(MetadataInfo.site_id == site_id,
+                                     MetadataInfo.timestamp.between(start, end)))
+            if not desc_key:
+                for key in order_by:
+                    ret = filt_ret.order_by(asc(key)).all()
+            else:
+                for key in order_by:
+                    ret = filt_ret.order_by(desc(key)).all()
+                
+            for metadata_info in ret[offset: offset + count]:
+                site_id_tmp = metadata_info.site_id
+                app_id_tmp = metadata_info.app_id
+                file_name_tmp = metadata_info.file_name
+                region_id_tmp = metadata_info.region_id
+                user_id_tmp = metadata_info.user_id
+                customer_id_tmp = metadata_info.customer_id
+                timestamp_tmp = metadata_info.timestamp
+                file_name = file_name_tmp.encode('utf-8')
+                
+                metadata = {}
+                metadata['user_id'] = user_id_tmp
+                metadata['customer_id'] = customer_id_tmp
+                metadata_json = json.dumps(metadata)
+                metadata_pack = metadata_json.encode('utf-8')
+                metadata_len = len(metadata_pack)
+                
+                body_resp = [region_id_tmp, site_id_tmp, app_id_tmp, timestamp_tmp,
+                             sgw_port, proxy_port, sgw_ip, proxy_ip, sgw_id,
+                             proxy_id, file_name, metadata_len]
+                body_pack = struct.pack(fmt_body, *body_resp)
+                body_tmp.append(body_pack + metadata_pack)
+        body_query = b''.join(body_tmp)
+        body_size = len(body_query)
+        
+        total_size = Constant.HEAD_LENGTH + body_size
+        src_id = int(Config.src_id, 16)
+        dst_id = client_src_id
+        command = Constant.FILE_QUERY_DATA_RESP
+        ack_code = Constant.ACK_CLIENT_QUERY_DATA
+         
+        # 构造消息头部
+        fmt_head = Constant.FMT_COMMON_HEAD
+        header = [total_size, self.major, self.minor, self.src_type,
+                  self.dst_type, src_id, dst_id, trans_id, sequence, command,
+                  ack_code, total, offset, count]
+        head_pack = struct.pack(fmt_head, *header)
+        logger.info("处理Fileportal查询元数据信息的请求，回复的head为：{}".format(header))
+        logger.info("处理Fileportal查询元数据信息的请求，回复的body为：{}".format(body_query))
+        data = head_pack + body_query
+        try:
+            conn.sendall(data)
+        except socket.error:
+            sel.unregister(conn)
+            conn.close()
+        finally:
+            sel.unregister(conn)
+            conn.close()
+            
+        
+    def handle_remote_query_data(self, head_unpack, body, conn, sel, sgw_info,
+                                 lock):
         """
         @:处理远端查询到的数据
         """
@@ -1240,9 +1435,11 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
                 
-    def handle_delete(self, head_unpack, body, conn, sgw_info, lock, conf_info):
+    def handle_delete(self, head_unpack, body, conn, sel, sgw_info, lock,
+                      conf_info):
         """
         @:处理Client的删除请求
         """
@@ -1279,7 +1476,11 @@ class Client:
             head_pack = struct.pack(fmt_head, *header)
             logger.info("处理Client删除元数据的请求,回复的head为：{}".format(header))
             data = head_pack + resp_body_pack + metadata_pack
-            conn.sendall(data)
+            try:
+                conn.sendall(data)
+            except socket.error:
+                sel.unregister(conn)
+                conn.close()
         else:
             site_id = client_src_id
             query_body_unpack = self.get_conf(site_id, conf_info)
@@ -1299,7 +1500,7 @@ class Client:
                     remote_head_unpack, remote_body = self.recv_remote_msg(sock) 
                     flag_remote = self._parse_remote_del_msg(remote_head_unpack)
                     if flag_remote:
-                        self.proxy_del(head_unpack, remote_body, conn,
+                        self.proxy_del(head_unpack, remote_body, conn, sel,
                                        sgw_info, lock)
                         break
                     else:
@@ -1317,9 +1518,59 @@ class Client:
                 try:
                     conn.sendall(data)
                 except socket.error:
+                    sel.unregister(conn)
                     conn.close()
+                    
+    def handle_file_delete(self, head_unpack, body, conn, sel, sgw_info, lock):
+        """
+        @:处理Client的删除请求
+        """
+#         (total_size, major, minor, src_type, dst_type, client_src_id, dst_id,
+#          trans_id, sequence, command, ack_code, total, offset, count) = head_unpack
+        logger.info('执行handle_file_delete,处理Fileportal删除元数据的请求')
+        total_size = head_unpack[0]
+        client_src_id = head_unpack[5]
+        trans_id = head_unpack[7]
+        sequence = head_unpack[8]
+        ack_code = head_unpack[10]
+        total = head_unpack[11]
+        offset = head_unpack[12]
+        count = head_unpack[13]
+        
+        fmt = Constant.FMT_TASKINFO_FIXED
+        body_unpack = struct.unpack(fmt, body[: Constant.TASKINFO_FIXED_LENGTH])
+        metadata_pack = body[Constant.TASKINFO_FIXED_LENGTH:]
+        metadata_unpack = json.loads(metadata_pack.decode('utf-8'))
+        
+        src_id = int(Config.src_id, 16)
+        dst_id = client_src_id
+        command = Constant.FILE_DEL_RESP
+            
+        flag_local, resp_body_pack = self.handle_local_del(body_unpack,
+                                                metadata_unpack, sgw_info, lock)
+        if flag_local:
+            ack_code = Constant.ACK_CLIENT_DEL_SUCCESS
+        else:
+            ack_code = Constant.ACK_CLIENT_DEL_FAILED
+            
+        fmt_head = Constant.FMT_COMMON_HEAD
+        header = [total_size, self.major, self.minor, self.src_type,
+                  self.dst_type, src_id, dst_id, trans_id, sequence, command,
+                  ack_code, total, offset, count]
+        head_pack = struct.pack(fmt_head, *header)
+        logger.info("处理Client删除元数据的请求,回复的head为：{}".format(header))
+        data = head_pack + resp_body_pack + metadata_pack
+        try:
+            conn.sendall(data)
+        except socket.error:
+            sel.unregister(conn)
+            conn.close()
+        finally:
+            sel.unregister(conn)
+            conn.close()
                 
-    def proxy_del(self, head_unpack, remote_body, conn, sgw_info, lock):
+                
+    def proxy_del(self, head_unpack, remote_body, conn, sel, sgw_info, lock):
         """
         @:代理删除
         """
@@ -1378,6 +1629,7 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
             
     def _generate_del_msg(self, head_unpack, body, meta_src_id):
@@ -1474,7 +1726,7 @@ class Client:
             body_pack = struct.pack(fmt_body, *body_unpack)
         return flag, body_pack    
     
-    def handle_remote_del(self, head_unpack, body, conn, sgw_info, lock):
+    def handle_remote_del(self, head_unpack, body, conn, sel, sgw_info, lock):
         """
         @:在本地删除成功后将删除成功与否的信息发给发起请求的MetadataServer
         """
@@ -1518,9 +1770,10 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
         
-    def handle_config_upgrade(self, head_unpack, body, conn, conf_info):
+    def handle_config_upgrade(self, head_unpack, body, conn, sel, conf_info):
         """
         @:处理Client配置升级
         @:Client更新配置请求的消息体json格式：
@@ -1567,9 +1820,10 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
     
-    def handle_client_upgrade(self, head_unpack, body, conn, conf_info):
+    def handle_client_upgrade(self, head_unpack, body, conn, sel, conf_info):
         """
         @:处理Client软件升级
         @:Client软件升级请求的消息体json格式：
@@ -1618,6 +1872,7 @@ class Client:
         try:
             conn.sendall(data)
         except socket.error:
+            sel.unregister(conn)
             conn.close()
         
         

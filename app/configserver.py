@@ -208,32 +208,20 @@ class ConfigServer:
                 blocks.append(block)
         return b''.join(blocks)
 
-    def get_msg(self):
-        """
-        @:解析ConfigServer回复的消息
-        """
-        header = self.recvall(Constant.HEAD_LENGTH)
-        fmt_head = Constant.FMT_COMMON_HEAD
-        try:
-            head_unpack = struct.unpack(fmt_head, header)
-        except struct.error:
-            self.sock.close()
-        else:
-            total_size = head_unpack[0]
-            body_size = total_size - Constant.HEAD_LENGTH
-            body = self.recvall(body_size)
-            return head_unpack, body
-
     def conf_read(self, conf_info):
         logger.info('执行conf_read,接收ConfigServer返回的消息')
         while True:
+            fmt_head = Constant.FMT_COMMON_HEAD
             try:
-                head_unpack, body = self.get_msg()
-            except:
+                header = self.recvall(Constant.HEAD_LENGTH)
+                head_unpack = struct.unpack(fmt_head, header)
+            except struct.error:
                 self.sock.close()
-                break
             else:
+                total_size = head_unpack[0]
+                body_size = total_size - Constant.HEAD_LENGTH
                 try:
+                    body = self.recvall(body_size)
                     self.data_handler(head_unpack, body, conf_info)
                 except:
                     logger.info('处理ConfigServer消息错误')
@@ -311,26 +299,6 @@ if __name__ == '__main__':
     conf_recv_thread = threading.Thread(target=config_server.conf_read,
                                         args=(conf_info,))
     conf_recv_thread.start()
-#     conf_recv_p = Process(target=config_server.data_handler,
-#                           args=(conf_info,))
-#     conf_recv_p.start()
-    site_id = 2
-#     p = Process(target=query, args=(conf_info, site_id))
-#     p.start()
-#     for i in range(Constant.try_times):
-#         logger.info('第{}次发送查询信息'.format(i+1))
-#         config_server.send_msg(site_id)
-#         key = str(site_id)
-#         body_unpack = conf_info.get(key)
-#         if body_unpack:
-#             conf_info.pop(key)
-#             logger.info(body_unpack)
-#             break
-#         else:
-#             logger.info('延时1秒发送查询请求')
-#             time.sleep(3)
-#     else:
-#         logger.error('查询3次未查到site_id：{}的配置信息'.format(site_id))
 
         
         
